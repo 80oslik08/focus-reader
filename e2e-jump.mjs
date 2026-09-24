@@ -98,8 +98,9 @@ async function runSuite(base, label) {
   await waitReady(page);
 
   await page.evaluate(async () => { if (window.RecentStore) await RecentStore.clearAll(); });
-  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.goto(base, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await waitReady(page);
+  await page.waitForTimeout(250);
 
   await page.evaluate(({ bookA }) => {
     window.__TEST_BOOKS__ = { A: bookA };
@@ -223,7 +224,7 @@ async function runSuite(base, label) {
   st = await page.evaluate(() => window.__FOCUS_READER__.getState());
   assert(st.index === 777, 'after jump, switch book and back retains position', report);
 
-  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.goto(base, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await waitReady(page);
   await waitRestored(page);
   await page.waitForTimeout(400);
