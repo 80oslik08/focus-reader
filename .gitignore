@@ -6,3 +6,6 @@ live-phone.png
 live-desktop.png
 package.json
 package-lock.json
+vendor/piper/test-voice/
+e2e-*-report.json
+test-run.txt

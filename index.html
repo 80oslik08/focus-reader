@@ -41,6 +41,7 @@
 
         <!-- LEFT: time navigation -->
         <aside class="player-col player-col-nav" id="playerColNav" aria-label="Time navigation">
+          <div id="jumpPanelHome">
           <div class="jump-panel" id="jumpPanel">
             <div class="jump-scrub" id="jumpScrub">
               <label class="jump-scrub-label" for="jumpSlider">Scrub</label>
@@ -80,6 +81,7 @@
               </div>
             </div>
           </div>
+          </div><!-- /jumpPanelHome -->
         </aside>
 
         <!-- CENTER: ORP + sentence strip + progress -->
@@ -133,116 +135,210 @@
               <span>Your reading session timer finished. Press Play to continue.</span>
             </div>
           </div>
+
+          <div class="now-playing" id="nowPlaying" aria-label="Now playing">
+            <div class="now-playing-head">
+              <span class="now-playing-title">Now playing</span>
+              <span class="genre-chip" id="genreChipNp" hidden></span>
+              <label class="genre-select-wrap" for="genreSelectNp"><span class="sr-only">Genre</span>
+                <select id="genreSelectNp" title="Book genre"></select>
+              </label>
+            </div>
+            <div class="now-playing-music">
+              <button type="button" class="btn btn-ghost btn-touch" id="btnMusicNp" aria-pressed="false">Music</button>
+              <button type="button" class="btn btn-ghost btn-touch" id="btnMusicAutoNp" aria-pressed="true">Auto</button>
+              <label class="np-vol" for="musicVolumeNp">Vol
+                <input type="range" id="musicVolumeNp" min="0" max="100" step="1" value="35" />
+              </label>
+              <select id="musicFamilySelectNp" title="Music style">
+                <option value="scifi">Sci-fi</option>
+                <option value="action">Action</option>
+                <option value="horror">Horror</option>
+                <option value="mystery">Mystery</option>
+                <option value="romance">Romance</option>
+                <option value="historical">Historical</option>
+                <option value="calm">Calm</option>
+                <option value="fantasy">Fantasy</option>
+                <option value="minimal">Minimal</option>
+              </select>
+            </div>
+            <div class="now-playing-stats">
+              <span>Session <strong id="sessionCountdownNp">Off</strong></span>
+              <span>Today <strong id="statsTodayNp">0:00</strong></span>
+              <span>Elapsed <strong id="elapsedDisplayNp">0:00</strong></span>
+            </div>
+          </div>
         </section>
+
+        <!-- Focus floating cluster -->
+        <div class="focus-dock" id="focusDock" hidden>
+          <button type="button" class="btn btn-primary btn-touch" id="btnFocusPlay" title="Play / Pause">Play</button>
+          <button type="button" class="btn btn-ghost btn-touch" id="btnFocusWpmDown" title="−5 WPM">−5</button>
+          <button type="button" class="btn btn-ghost btn-touch" id="btnFocusWpmUp" title="+5 WPM">+5</button>
+          <button type="button" class="btn btn-ghost btn-touch" id="btnFocusListen" title="Listen" aria-pressed="false">Listen</button>
+          <button type="button" class="btn btn-ghost btn-touch" id="btnFocusExit" title="Exit focus">Exit</button>
+        </div>
 
         <!-- RIGHT: playback controls -->
         <aside class="player-col player-col-controls" id="playerColControls" aria-label="Playback controls">
           <div class="controls controls-sticky" id="controls">
-            <div class="controls-group" data-group="playback">
-            <span class="controls-group-label">Playback</span>
-            <div class="controls-play-row">
-              <button type="button" class="btn btn-ghost btn-touch" id="btnWpmDown" title="−5 WPM (↓)" aria-label="Decrease speed 5 WPM"><span class="btn-wpm-label-full">−5 WPM</span><span class="btn-wpm-label-short">−5 <small>WPM</small></span></button>
-              <button type="button" class="btn btn-primary btn-play btn-touch" id="btnPlay" title="Play / Pause (Space)">
-                <svg id="iconPlay" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
-                <svg id="iconPause" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
-                <span id="playLabel">Play</span>
-              </button>
-              <button type="button" class="btn btn-ghost btn-touch" id="btnWpmUp" title="+5 WPM (↑)" aria-label="Increase speed 5 WPM"><span class="btn-wpm-label-full">+5 WPM</span><span class="btn-wpm-label-short">+5 <small>WPM</small></span></button>
-            </div>
+            <!-- Sticky primary (phone) / always visible playback -->
+            <div class="controls-group controls-primary" data-group="playback">
+              <span class="controls-group-label desktop-only-label">Playback</span>
+              <div class="controls-play-row">
+                <button type="button" class="btn btn-ghost btn-touch" id="btnWpmDown" title="−5 WPM (↓)" aria-label="Decrease speed 5 WPM"><span class="btn-wpm-label-full">−5 WPM</span><span class="btn-wpm-label-short">−5 <small>WPM</small></span></button>
+                <button type="button" class="btn btn-primary btn-play btn-touch" id="btnPlay" title="Play / Pause (Space)">
+                  <svg id="iconPlay" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+                  <svg id="iconPause" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+                  <span id="playLabel">Play</span>
+                </button>
+                <button type="button" class="btn btn-ghost btn-touch" id="btnWpmUp" title="+5 WPM (↑)" aria-label="Increase speed 5 WPM"><span class="btn-wpm-label-full">+5 WPM</span><span class="btn-wpm-label-short">+5 <small>WPM</small></span></button>
+                <button type="button" class="btn btn-ghost btn-touch phone-only" id="btnListenBar" title="Listen" aria-pressed="false">Listen</button>
+                <button type="button" class="btn btn-ghost btn-touch btn-controls-more phone-only" id="btnControlsMore" aria-expanded="false" title="Open all controls">Controls</button>
+              </div>
             </div>
 
-            <div class="controls-group" data-group="speed">
-            <span class="controls-group-label">Speed</span>
-            <div class="speed-panel">
-              <label for="wpmRange">WPM</label>
-              <div class="speed-slider-wrap">
-                <input type="range" id="wpmRange" min="100" max="1000" step="5" value="300" />
-                <div class="voice-limit-track" id="voiceLimitTrack" hidden>
-                  <div class="voice-limit-zone" id="voiceLimitZone" title="Voice listening limit — speeds above this are hard to follow by ear"></div>
-                  <div class="voice-limit-tick" id="voiceLimitTick"><span id="voiceLimitLabel">voice ~300</span></div>
+            <div class="controls-sheet-backdrop" id="controlsSheetBackdrop" hidden></div>
+            <div class="controls-sheet" id="controlsSheet" role="dialog" aria-label="Controls">
+              <div class="controls-sheet-header">
+                <div class="controls-sheet-handle" aria-hidden="true"></div>
+                <h2 class="controls-sheet-title">Controls</h2>
+                <button type="button" class="btn btn-ghost btn-touch btn-sheet-close" id="btnControlsClose" title="Close controls">Close</button>
+              </div>
+              <div class="controls-sheet-body">
+
+                <div class="controls-group sheet-only-dup-speed desktop-inline" data-group="speed">
+                  <span class="controls-group-label">Speed</span>
+                  <div class="speed-panel">
+                    <label for="wpmRange">WPM</label>
+                    <div class="speed-slider-wrap">
+                      <input type="range" id="wpmRange" min="100" max="1000" step="5" value="300" />
+                      <div class="voice-limit-track" id="voiceLimitTrack" hidden>
+                        <div class="voice-limit-zone" id="voiceLimitZone" title="Voice listening limit — speeds above this are hard to follow by ear"></div>
+                        <div class="voice-limit-tick" id="voiceLimitTick"><span id="voiceLimitLabel">voice ~300</span></div>
+                      </div>
+                    </div>
+                    <input type="number" id="wpmInput" min="100" max="1000" step="5" value="300" inputmode="numeric" />
+                    <span class="voice-limit-hint" id="voiceLimitHint" hidden></span>
+                  </div>
                 </div>
+
+                <div class="controls-group" data-group="sheet-jump" id="sheetJumpHome">
+                  <span class="controls-group-label phone-sheet-label">Jump</span>
+                  <div id="sheetJumpSlot" class="sheet-jump-slot"></div>
+                </div>
+
+                <div class="controls-group" data-group="listen-voice">
+                  <span class="controls-group-label">Listen &amp; Voice</span>
+                  <div class="controls-extra-row">
+                    <button type="button" class="btn btn-ghost btn-touch desktop-inline" id="btnListen" title="Listen mode (speech)" aria-pressed="false">Listen</button>
+                    <button type="button" class="btn btn-touch" id="btnRestart" title="Restart">Restart</button>
+                    <button type="button" class="btn btn-ghost btn-touch" id="btnFocusControl" title="Focus mode (F)" aria-pressed="false">Focus</button>
+                  </div>
+                  <div class="listen-voice-row" id="listenVoiceRow">
+                    <label for="voiceSelect">Voice</label>
+                    <select id="voiceSelect"><option value="">System voice</option></select>
+                    <label for="langOverride">Lang</label>
+                    <select id="langOverride">
+                      <option value="">Auto</option>
+                      <option value="en">English</option>
+                      <option value="sk">Slovak</option>
+                      <option value="cs">Czech</option>
+                      <option value="de">German</option>
+                      <option value="pl">Polish</option>
+                      <option value="hu">Hungarian</option>
+                      <option value="fr">French</option>
+                      <option value="es">Spanish</option>
+                      <option value="it">Italian</option>
+                      <option value="ru">Russian</option>
+                      <option value="uk">Ukrainian</option>
+                    </select>
+                  </div>
+                  <button type="button" class="btn btn-ghost btn-touch" id="btnVoicesManager">Natural voices…</button>
+                  <p class="voice-help-note" id="voiceHelpNote">Natural (Piper) voices download per device for offline use. Device voices use the system speech engine.</p>
+                </div>
+
+                <div class="controls-group" data-group="music" id="musicControls">
+                  <span class="controls-group-label">Music</span>
+                  <div class="controls-extra-row">
+                    <button type="button" class="btn btn-ghost btn-touch" id="btnMusic" aria-pressed="false">Music</button>
+                    <button type="button" class="btn btn-ghost btn-touch" id="btnMusicAuto" aria-pressed="true">Auto genre</button>
+                    <button type="button" class="btn btn-ghost btn-touch" id="btnMusicDuck" aria-pressed="true">Duck under voice</button>
+                  </div>
+                  <div class="speed-panel music-vol-panel">
+                    <label for="musicVolume">Vol</label>
+                    <input type="range" id="musicVolume" min="0" max="100" step="1" value="35" />
+                    <select id="musicFamilySelect" title="Music style">
+                      <option value="scifi">Sci-fi</option>
+                      <option value="action">Action/Adventure</option>
+                      <option value="horror">Horror</option>
+                      <option value="mystery">Mystery</option>
+                      <option value="romance">Romance/Drama</option>
+                      <option value="historical">Historical/Epic</option>
+                      <option value="calm">Philosophy/Religion</option>
+                      <option value="fantasy">Children/Fantasy</option>
+                      <option value="minimal">Minimal</option>
+                    </select>
+                  </div>
+                  <label class="file-btn btn btn-ghost btn-touch">Add your music
+                    <input type="file" id="musicFileInput" accept="audio/*" hidden />
+                  </label>
+                  <p class="voice-help-note">Generative ambient music. Your files stay on this device only (not synced).</p>
+                </div>
+
+                <div class="controls-group" data-group="genre-sheet">
+                  <span class="controls-group-label">Genre</span>
+                  <label class="genre-select-wrap block" for="genreSelectSheet">Book genre
+                    <select id="genreSelectSheet" title="Book genre"></select>
+                  </label>
+                </div>
+
+                <div class="controls-group" data-group="display">
+                  <span class="controls-group-label">Display</span>
+                  <div class="controls-extra-row">
+                    <button type="button" class="btn btn-ghost btn-touch" id="btnSentenceStrip" title="Toggle sentence line" aria-pressed="true">Sentence line</button>
+                    <button type="button" class="btn btn-ghost btn-touch" id="btnNaturalPauses" title="Natural pauses" aria-pressed="false">Natural pauses</button>
+                  </div>
+                  <div class="theme-seg" id="themeSeg" role="group" aria-label="Theme">
+                    <button type="button" class="theme-seg-btn" data-theme="dark" aria-pressed="true">Dark</button>
+                    <button type="button" class="theme-seg-btn" data-theme="black" aria-pressed="false">Black</button>
+                    <button type="button" class="theme-seg-btn" data-theme="white" aria-pressed="false">White</button>
+                  </div>
+                  <label class="beep-toggle"><input type="checkbox" id="chkDigitsChapters" /> Show chapter numbers as digits</label>
+                </div>
+
+                <div class="controls-group" data-group="timer-sheet">
+                  <span class="controls-group-label">Timer</span>
+                  <div class="session-presets" id="sessionPresetsSheet">
+                    <button type="button" class="btn btn-chip" data-min="5">5m</button>
+                    <button type="button" class="btn btn-chip" data-min="10">10m</button>
+                    <button type="button" class="btn btn-chip" data-min="15">15m</button>
+                    <button type="button" class="btn btn-chip" data-min="30">30m</button>
+                  </div>
+                  <div class="session-custom">
+                    <button type="button" class="btn btn-touch" id="btnSessionStartSheet">Start</button>
+                    <button type="button" class="btn btn-ghost btn-touch" id="btnSessionOffSheet">Off</button>
+                  </div>
+                  <p class="sync-meta">Full timer &amp; stats also in the Timer panel below.</p>
+                </div>
+
+                <div class="controls-group" data-group="offline-sheet">
+                  <span class="controls-group-label">Offline &amp; Backup</span>
+                  <div class="panel-actions">
+                    <button type="button" class="btn btn-touch" id="btnOfflineDownload">Download all Library books for offline</button>
+                    <button type="button" class="btn btn-ghost btn-touch" id="btnExportBackup">Export everything</button>
+                    <label class="btn btn-ghost btn-touch file-btn">Import backup
+                      <input type="file" id="backupFileInput" accept="application/json,.json" hidden />
+                    </label>
+                  </div>
+                  <p class="sync-meta" id="offlineStatusSheet">Storage: —</p>
+                </div>
+
               </div>
-              <input type="number" id="wpmInput" min="100" max="1000" step="5" value="300" inputmode="numeric" />
-              <span class="voice-limit-hint" id="voiceLimitHint" hidden></span>
-            </div>
-            </div>
-
-            <div class="controls-group" data-group="listen">
-            <span class="controls-group-label">Listen &amp; more</span>
-            <div class="controls-extra-row">
-              <button type="button" class="btn btn-ghost btn-touch" id="btnListen" title="Listen mode (speech)" aria-pressed="false">Listen</button>
-              <button type="button" class="btn btn-touch" id="btnRestart" title="Restart">Restart</button>
-              <button type="button" class="btn btn-ghost btn-touch" id="btnFocusControl" title="Focus mode (F)" aria-pressed="false">Focus</button>
-              <button type="button" class="btn btn-ghost btn-touch" id="btnSentenceStrip" title="Toggle sentence line" aria-pressed="true">Sentence line</button>
-              <button type="button" class="btn btn-ghost btn-touch" id="btnNaturalPauses" title="Natural pauses (length & punctuation)" aria-pressed="false">Natural pauses</button>
-              <button type="button" class="btn btn-ghost btn-touch btn-controls-more" id="btnControlsMore" aria-expanded="false" title="Open all controls">Controls</button>
-              <button type="button" class="btn btn-ghost btn-touch" id="btnListenBar" title="Listen" aria-pressed="false">Listen</button>
-            </div>
-
-            <div class="controls-sheet" id="controlsSheet">
-            <div class="theme-seg" id="themeSeg" role="group" aria-label="Theme">
-              <button type="button" class="theme-seg-btn" data-theme="dark" aria-pressed="true">Dark</button>
-              <button type="button" class="theme-seg-btn" data-theme="black" aria-pressed="false">Black</button>
-              <button type="button" class="theme-seg-btn" data-theme="white" aria-pressed="false">White</button>
-            </div>
-
-            <div class="listen-voice-row" id="listenVoiceRow">
-              <label for="voiceSelect">Voice</label>
-              <select id="voiceSelect"><option value="">System voice</option></select>
-              <label for="langOverride">Lang</label>
-              <select id="langOverride">
-                <option value="">Auto</option>
-                <option value="en">English</option>
-                <option value="sk">Slovak</option>
-                <option value="cs">Czech</option>
-                <option value="de">German</option>
-                <option value="pl">Polish</option>
-                <option value="hu">Hungarian</option>
-                <option value="fr">French</option>
-                <option value="es">Spanish</option>
-                <option value="it">Italian</option>
-                <option value="ru">Russian</option>
-                <option value="uk">Ukrainian</option>
-              </select>
-            </div>
-            <p class="voice-help-note" id="voiceHelpNote">For more natural voices: PC — use Microsoft Edge (Natural voices). iPhone — Settings › Accessibility › Spoken Content › Voices, download Enhanced/Premium. Android — Settings › Text-to-speech.</p>
-
-            <div class="controls-group" data-group="reading-opts">
-              <span class="controls-group-label">Reading</span>
-              <label class="beep-toggle"><input type="checkbox" id="chkDigitsChapters" /> Show chapter numbers as digits</label>
-            </div>
-
-            <div class="controls-group" data-group="music" id="musicControls">
-              <span class="controls-group-label">Music</span>
-              <div class="controls-extra-row">
-                <button type="button" class="btn btn-ghost btn-touch" id="btnMusic" aria-pressed="false">Music</button>
-                <button type="button" class="btn btn-ghost btn-touch" id="btnMusicAuto" aria-pressed="true">Auto genre</button>
-                <button type="button" class="btn btn-ghost btn-touch" id="btnMusicDuck" aria-pressed="true">Duck under voice</button>
-              </div>
-              <div class="speed-panel music-vol-panel">
-                <label for="musicVolume">Vol</label>
-                <input type="range" id="musicVolume" min="0" max="100" step="1" value="35" />
-                <select id="musicFamilySelect" title="Music style">
-                  <option value="scifi">Sci-fi</option>
-                  <option value="action">Action/Adventure</option>
-                  <option value="horror">Horror</option>
-                  <option value="mystery">Mystery</option>
-                  <option value="romance">Romance/Drama</option>
-                  <option value="historical">Historical/Epic</option>
-                  <option value="calm">Philosophy/Religion</option>
-                  <option value="fantasy">Children/Fantasy</option>
-                  <option value="minimal">Minimal</option>
-                </select>
-              </div>
-              <label class="file-btn btn btn-ghost btn-touch">Add your music
-                <input type="file" id="musicFileInput" accept="audio/*" hidden />
-              </label>
-              <p class="voice-help-note">Generative ambient music (no downloads). Your files stay on this device only and are not synced.</p>
-            </div>
-            </div><!-- /controlsSheet -->
             </div>
           </div>
         </aside>
+
       </div>
     </div>
 
@@ -425,14 +521,7 @@
     <details class="panel accordion" id="panelOffline" open>
       <summary class="accordion-summary">Offline, backup &amp; Read any page</summary>
       <div class="accordion-body">
-        <div class="panel-actions">
-          <button type="button" class="btn btn-touch" id="btnOfflineDownload">Download all Library books for offline</button>
-          <button type="button" class="btn btn-ghost btn-touch" id="btnExportBackup">Export everything</button>
-          <label class="btn btn-ghost btn-touch file-btn">Import backup
-            <input type="file" id="backupFileInput" accept="application/json,.json" hidden />
-          </label>
-        </div>
-        <p class="sync-meta" id="offlineStatus">Storage: —</p>
+        <p class="sync-meta" id="offlineStatus">Storage: — · Use Controls › Offline &amp; Backup to download / export.</p>
         <div class="orp-note" id="bookmarkletHelp">
           <p><strong>Read any page</strong> — drag this bookmarklet to your bookmarks bar:</p>
           <p><a id="bookmarkletLink" href="#">Focus Reader: Read page</a></p>
@@ -444,6 +533,20 @@
     <p class="footer-note">Classic Spritz-style ORP RSVP · offline · US20140016867A1 TABLE I</p>
   </div>
 
+  <div class="voices-modal" id="voicesManager" hidden>
+    <div class="voices-modal-card">
+      <div class="voices-modal-head">
+        <h2>Natural voices</h2>
+        <button type="button" class="btn btn-ghost btn-touch" id="btnVoicesClose">Close</button>
+      </div>
+      <div class="voices-filters">
+        <label>Language <select id="voicesLangFilter"><option value="">All</option></select></label>
+        <span class="sync-meta" id="voicesStorage">Storage: —</span>
+      </div>
+      <div class="voices-list" id="voicesList"></div>
+      <p class="voice-help-note">Models download from Hugging Face into this device (OPFS/Cache). Preferences sync; files do not. iOS lock-screen controls are best-effort.</p>
+    </div>
+  </div>
   <div class="status-toast" id="toast" role="status"></div>
 
   <div class="update-toast" id="updateToast" hidden>
@@ -463,6 +566,9 @@
   <script src="library.js"></script>
   <script src="voice-limit.js"></script>
   <script src="listen.js"></script>
+  <script type="module" src="piper-boot.js"></script>
+  <script src="media-session.js"></script>
+  <script src="voices-ui.js"></script>
   <script src="jump.js"></script>
   <script src="sentence-strip.js"></script>
   <script src="app.js"></script>

@@ -485,6 +485,59 @@
 
   global.FocusTtsEngine = SpeechEngine;
 
+  var engines = { speechSynthesis: SpeechEngine, device: SpeechEngine };
+  var activeEngineName = 'device';
+
+  function setEngine(name, engineObj) {
+    if (engineObj) engines[name] = engineObj;
+    if (name && engines[name]) {
+      activeEngineName = name;
+      global.FocusTtsEngine = engines[name];
+    }
+  }
+
+  function getActiveEngine() {
+    return engines[activeEngineName] || SpeechEngine;
+  }
+
+  // Wrap speak to optionally use Piper engine
+  var _speakImm = speakFromWordIndexImmediate;
+  speakFromWordIndexImmediate = function (wordList, startIndex, wpm) {
+    var eng = getActiveEngine();
+    if (eng && eng.name !== 'speechSynthesis' && typeof eng.speak === 'function' && activeEngineName === 'piper') {
+      stopListening(true);
+      gen += 1;
+      var myGen = gen;
+      speaking = true;
+      var words = prepareWords(wordList || []);
+      eng.setRate && eng.setRate(wpm);
+      eng.on && eng.on('wordIndex', function (ev) {
+        if (myGen !== gen) return;
+        if (handlers.onWord) handlers.onWord(ev.wordIndex, ev);
+      });
+      eng.on && eng.on('end', function () {
+        if (myGen !== gen) return;
+        speaking = false;
+        if (handlers.onEnd) handlers.onEnd();
+      });
+      Promise.resolve(eng.speak(words.slice(startIndex), startIndex, { wpm: wpm, voiceId: eng.getVoiceId && eng.getVoiceId() }))
+        .catch(function (e) {
+          speaking = false;
+          if (handlers.onEnd) handlers.onEnd();
+          console.warn('[FocusListen] piper speak failed', e);
+        });
+      return;
+    }
+    return _speakImm(wordList, startIndex, wpm);
+  };
+
+  var _stop = stopListening;
+  stopListening = function (silent) {
+    var eng = getActiveEngine();
+    if (eng && activeEngineName === 'piper' && eng.stop) eng.stop();
+    return _stop(silent);
+  };
+
   global.FocusListen = {
     supportsSpeech: supportsSpeech,
     setListen: setListen,
@@ -511,6 +564,9 @@
     getGen: function () { return gen; },
     prepareWords: prepareWords,
     engine: SpeechEngine,
+    setEngine: setEngine,
+    getEngineName: function () { return activeEngineName; },
+    getActiveEngine: getActiveEngine,
     on: function (evt, fn) {
       if (evt === 'word') handlers.onWord = fn;
       if (evt === 'end') handlers.onEnd = fn;

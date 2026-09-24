@@ -64,21 +64,26 @@ async function loadBook(page) {
 
 async function openControls(page) {
   await page.evaluate(() => {
-    const btn = document.getElementById('btnControlsMore');
-    const col = document.getElementById('playerColControls');
-    if (btn && col && !col.classList.contains('is-controls-expanded')) {
-      btn.click();
+    if (typeof setControlsSheetOpen === 'function') setControlsSheetOpen(true);
+    else {
+      const col = document.getElementById('playerColControls');
+      if (col) col.classList.add('is-controls-expanded');
+      const btn = document.getElementById('btnControlsMore');
+      if (btn) btn.click();
     }
   });
-  await page.waitForTimeout(100);
+  await page.waitForTimeout(200);
 }
 
 async function closeControls(page) {
   await page.evaluate(() => {
-    const btn = document.getElementById('btnControlsMore');
-    const col = document.getElementById('playerColControls');
-    if (btn && col && col.classList.contains('is-controls-expanded')) btn.click();
+    if (typeof setControlsSheetOpen === 'function') setControlsSheetOpen(false);
+    else {
+      const col = document.getElementById('playerColControls');
+      if (col) col.classList.remove('is-controls-expanded');
+    }
   });
+  await page.waitForTimeout(100);
 }
 
 async function assertControlsReachable(page, label) {
@@ -104,10 +109,15 @@ async function assertControlsReachable(page, label) {
       const style = getComputedStyle(el);
       const hidden = style.display === 'none' || style.visibility === 'hidden';
       if (hidden) {
-        // acceptable if inside collapsed sheet on desktop (display:contents children visible)
+        // Phone sticky Listen replaces #btnListen (exactly one Listen per surface)
+        if (id === 'btnListen' && narrow) {
+          const bar = document.getElementById('btnListenBar');
+          if (bar && getComputedStyle(bar).display !== 'none') continue;
+        }
+        // Landscape desktop-width: Controls button may be phone-only; sheet is always open via CSS on desktop widths
+        if (id === 'btnControlsMore' && !narrow) continue;
         if (id === 'btnControlsMore' && (narrow || land)) bad.push(id + ':hidden');
         else if (!['btnControlsMore'].includes(id)) {
-          // after openControls, should be visible on phone/land
           if ((narrow || land) && style.display === 'none') bad.push(id + ':still-hidden');
         }
       } else if (r.width < 1 && r.height < 1 && el.tagName !== 'INPUT' && el.tagName !== 'SELECT') {
@@ -389,6 +399,13 @@ async function assertControlsReachable(page, label) {
   await page.screenshot({ path: join(__dirname, 'shot-full-phone.png') });
   await openControls(page);
   await page.screenshot({ path: join(__dirname, 'shot-full-phone-controls.png') });
+  await closeControls(page);
+  await page.evaluate(() => {
+    document.body.classList.add('focus-mode');
+    if (typeof reflowReaderLayout === 'function') reflowReaderLayout();
+  });
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: join(__dirname, 'shot-full-phone-focus-portrait.png') });
   await page.evaluate(() => {
     document.body.classList.add('focus-mode');
     if (typeof reflowReaderLayout === 'function') reflowReaderLayout();

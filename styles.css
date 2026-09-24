@@ -2721,3 +2721,406 @@ body.is-embed .reader-card {
 body.is-embed .word {
   font-size: clamp(1.6rem, 8vw, 2.4rem);
 }
+
+/* ——— STEP 1 polish: controls sheet, focus dock, now playing ——— */
+.phone-only { display: none !important; }
+.desktop-only-label { display: block; }
+.phone-sheet-label { display: none; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+
+.now-playing {
+  margin-top: 0.65rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 12px;
+  background: var(--panel, rgba(255,255,255,0.04));
+  border: 1px solid rgba(255,255,255,0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.now-playing-head, .now-playing-music, .now-playing-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.6rem;
+}
+.now-playing-title {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.7;
+  font-weight: 600;
+}
+.now-playing-stats {
+  font-size: 0.8rem;
+  opacity: 0.85;
+  justify-content: space-between;
+}
+.np-vol { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; }
+.np-vol input[type=range] { width: 6rem; }
+
+.focus-dock {
+  position: fixed;
+  left: 50%;
+  bottom: calc(0.75rem + env(safe-area-inset-bottom, 0));
+  transform: translateX(-50%);
+  z-index: 80;
+  display: flex;
+  gap: 0.35rem;
+  padding: 0.4rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: 0 8px 28px rgba(0,0,0,0.45);
+  backdrop-filter: blur(8px);
+}
+body.focus-mode .focus-dock { display: flex !important; }
+body:not(.focus-mode) .focus-dock { display: none !important; }
+
+body.focus-mode .header,
+body.focus-mode .header-actions,
+body.focus-mode .below-reader,
+body.focus-mode .footer-note,
+body.focus-mode .player-col-nav,
+body.focus-mode .player-col-controls,
+body.focus-mode .now-playing,
+body.focus-mode .touch-hint,
+body.focus-mode .tagline {
+  display: none !important;
+}
+body.focus-mode .player-row {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  min-height: 100dvh;
+  align-content: center;
+}
+body.focus-mode .player-col-center {
+  width: 100% !important;
+  max-width: 52rem;
+  margin: 0 auto;
+  justify-self: center;
+}
+body.focus-mode.is-landscape .player-col-center,
+body.focus-mode.is-landscape .stage-wrap {
+  min-height: calc(100dvh - 4.5rem);
+}
+body.focus-mode .stage-wrap {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.controls-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 60;
+}
+.controls-sheet-header {
+  display: none;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.25rem 0.65rem;
+  position: sticky;
+  top: 0;
+  background: var(--bg, #0f172a);
+  z-index: 2;
+}
+.controls-sheet-title {
+  flex: 1;
+  margin: 0;
+  font-size: 1rem;
+}
+.controls-sheet-handle {
+  width: 2.5rem;
+  height: 0.28rem;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.25);
+  margin: 0.15rem auto 0.5rem;
+  display: none;
+}
+.btn-sheet-close { margin-left: auto; }
+.sheet-jump-slot:empty { display: none; }
+
+.voices-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0,0,0,0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.voices-modal[hidden] { display: none !important; }
+.voices-modal-card {
+  width: min(720px, 100%);
+  max-height: min(90dvh, 900px);
+  overflow: auto;
+  background: var(--panel, #1e293b);
+  border-radius: 14px;
+  padding: 1rem;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+.voices-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.voices-filters { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; margin: 0.75rem 0; }
+.voices-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.voice-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.35rem 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 10px;
+  background: rgba(0,0,0,0.2);
+  border: 1px solid rgba(255,255,255,0.06);
+}
+.voice-row-meta { font-size: 0.78rem; opacity: 0.75; }
+.voice-row-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
+
+@media (max-width: 699px) {
+  .phone-only { display: inline-flex !important; }
+  .desktop-only-label { display: none !important; }
+  .phone-sheet-label { display: block !important; }
+  #btnListen { display: none !important; } /* sticky bar has Listen */
+  .controls-sheet {
+    display: none;
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    max-height: min(88dvh, 900px);
+    overflow: auto;
+    z-index: 70;
+    padding: 0.5rem 0.75rem 1.25rem;
+    border-radius: 16px 16px 0 0;
+    background: var(--bg, #0f172a);
+    border-top: 1px solid rgba(255,255,255,0.1);
+    box-shadow: 0 -12px 40px rgba(0,0,0,0.5);
+  }
+  .player-col-controls.is-controls-expanded .controls-sheet { display: block !important; }
+  .player-col-controls.is-controls-expanded .controls-sheet-backdrop { display: block !important; }
+  .controls-sheet-header { display: flex; flex-wrap: wrap; }
+  .controls-sheet-handle { display: block; width: 100%; }
+  .controls-sheet .controls-group { margin-bottom: 0.85rem; }
+  .controls-sticky {
+    position: sticky;
+    bottom: 0;
+    z-index: 40;
+    background: var(--bg, #0f172a);
+    padding-bottom: env(safe-area-inset-bottom, 0);
+    border-top: 1px solid rgba(255,255,255,0.08);
+  }
+  /* Desktop-inline speed still in sheet on phone */
+  .now-playing { display: none; } /* phone uses sheet Music section */
+}
+
+@media (min-width: 700px) {
+  .controls-sheet {
+    display: block !important;
+    position: static;
+    max-height: none;
+    overflow: visible;
+    padding: 0;
+    border: 0;
+    box-shadow: none;
+    background: transparent;
+  }
+  .controls-sheet-backdrop,
+  .controls-sheet-header { display: none !important; }
+  .phone-sheet-label { display: none !important; }
+  #sheetJumpHome { display: none !important; } /* jump stays in left col */
+  .player-col-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  /* Balance column heights: stretch controls to match center */
+  .player-row { align-items: stretch; }
+  .player-col-center, .player-col-nav, .player-col-controls {
+    display: flex;
+    flex-direction: column;
+  }
+  .player-col-center .stage-wrap { flex: 0 0 auto; }
+  .player-col-center .now-playing { flex: 1 1 auto; }
+}
+
+/* Final overrides: sheet contents must show when expanded */
+@media (max-width: 699px) {
+  .player-col-controls.is-controls-expanded .controls-sheet,
+  .player-col-controls.is-controls-expanded .controls-sheet .controls-group,
+  .player-col-controls.is-controls-expanded .controls-sheet .speed-panel,
+  .player-col-controls.is-controls-expanded .controls-sheet .listen-voice-row,
+  .player-col-controls.is-controls-expanded .controls-sheet .theme-seg,
+  .player-col-controls.is-controls-expanded .controls-sheet .controls-extra-row,
+  .player-col-controls.is-controls-expanded .controls-sheet #btnRestart,
+  .player-col-controls.is-controls-expanded .controls-sheet #btnFocusControl,
+  .player-col-controls.is-controls-expanded .controls-sheet #btnSentenceStrip,
+  .player-col-controls.is-controls-expanded .controls-sheet #btnNaturalPauses,
+  .player-col-controls.is-controls-expanded .controls-sheet .controls-group-label {
+    display: flex !important;
+  }
+  .player-col-controls.is-controls-expanded .controls-sheet .voice-help-note,
+  .player-col-controls.is-controls-expanded .controls-sheet .controls-group-label,
+  .player-col-controls.is-controls-expanded .controls-sheet .beep-toggle {
+    display: block !important;
+  }
+  .player-col-controls.is-controls-expanded .controls-sheet .theme-seg {
+    display: inline-flex !important;
+  }
+}
+@media (max-height: 500px) and (min-width: 640px) {
+  /* Landscape: use Controls sheet same as phone when narrow height */
+  .btn-controls-more.phone-only,
+  #btnControlsMore {
+    display: inline-flex !important;
+  }
+  .player-col-controls .controls-sheet {
+    display: none;
+  }
+  .player-col-controls.is-controls-expanded .controls-sheet {
+    display: block !important;
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    max-height: 85dvh;
+    overflow: auto;
+    z-index: 70;
+    background: var(--bg, #0f172a);
+    padding: 0.5rem 0.75rem 1rem;
+  }
+  .player-col-controls.is-controls-expanded .controls-sheet .theme-seg,
+  .player-col-controls.is-controls-expanded .controls-sheet .listen-voice-row,
+  .player-col-controls.is-controls-expanded .controls-sheet #btnRestart,
+  .player-col-controls.is-controls-expanded .controls-sheet #btnFocusControl,
+  .player-col-controls.is-controls-expanded .controls-sheet #btnSentenceStrip,
+  .player-col-controls.is-controls-expanded .controls-sheet #btnNaturalPauses,
+  .player-col-controls.is-controls-expanded .controls-sheet .speed-panel,
+  .player-col-controls.is-controls-expanded .controls-sheet .controls-group {
+    display: flex !important;
+  }
+}
+
+/* ——— Embed polish: single Listen, fit ~600px height ——— */
+body.is-embed #btnListen {
+  display: none !important; /* sticky/primary Listen only */
+}
+body.is-embed .controls-sheet {
+  display: none !important; /* never display:contents leak into footer */
+}
+body.is-embed .player-col-controls.is-controls-expanded .controls-sheet {
+  display: flex !important;
+  flex-direction: column;
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  max-height: min(75dvh, 560px);
+  overflow: auto;
+  z-index: 70;
+  padding: 0.4rem 0.6rem calc(0.6rem + env(safe-area-inset-bottom, 0));
+  border-radius: 14px 14px 0 0;
+  background: var(--bg, #0f172a);
+  border-top: 1px solid rgba(255,255,255,0.12);
+  box-shadow: 0 -10px 36px rgba(0,0,0,0.45);
+}
+body.is-embed .phone-only,
+body.is-embed #btnListenBar,
+body.is-embed #btnControlsMore {
+  display: inline-flex !important;
+}
+body.is-embed .player-row,
+body.is-embed .layout-player {
+  min-height: 100dvh !important;
+  max-height: 100dvh !important;
+  overflow: hidden !important;
+  padding: 0.25rem !important;
+  gap: 0.25rem !important;
+}
+body.is-embed .player-col-nav,
+body.is-embed .player-col-jump,
+body.is-embed .player-col-left {
+  order: 2;
+  max-height: 22vh;
+  overflow: auto;
+  flex: 0 0 auto;
+}
+body.is-embed .player-col-center {
+  order: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+body.is-embed .player-col-controls {
+  order: 3;
+  flex: 0 0 auto;
+  position: sticky;
+  bottom: 0;
+  z-index: 40;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  background: var(--bg, #0f172a);
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+body.is-embed .stage-wrap {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+body.is-embed .word {
+  font-size: clamp(1.25rem, 6.5vw, 2.1rem) !important;
+}
+body.is-embed .sentence-strip-wrap {
+  height: 1.6rem;
+}
+body.is-embed .now-playing,
+body.is-embed .touch-hint {
+  display: none !important;
+}
+body.is-embed .controls-play-row {
+  gap: 0.25rem;
+}
+body.is-embed .controls-play-row .btn {
+  padding: 0.35rem 0.45rem;
+  min-height: 2.4rem;
+}
+body.is-embed .progress-meta {
+  font-size: 0.72rem;
+}
+/* Short embed panel (~600px) */
+@media (max-height: 700px) {
+  body.is-embed .player-col-nav {
+    max-height: 16vh;
+  }
+  body.is-embed .word {
+    font-size: clamp(1.1rem, 5.5vw, 1.7rem) !important;
+  }
+  body.is-embed .sentence-strip-wrap {
+    height: 1.35rem;
+  }
+  body.is-embed .source-label-row {
+    font-size: 0.7rem;
+  }
+  body.is-embed .controls-group-label.desktop-only-label {
+    display: none !important;
+  }
+}
+
+body.is-embed .controls-sticky {
+  padding: 0.2rem 0.15rem !important;
+  margin: 0 !important;
+}
+body.is-embed .controls-play-row .btn {
+  min-height: 2.15rem !important;
+  padding: 0.25rem 0.35rem !important;
+  font-size: 0.82rem;
+}
+body.is-embed .player-col-controls {
+  max-height: none;
+  overflow: visible;
+}
+body.is-embed .app {
+  min-height: 100% !important;
+  max-height: 100dvh !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+html.is-embed, body.is-embed {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
