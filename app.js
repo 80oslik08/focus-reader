@@ -2935,6 +2935,7 @@ resumeMostRecentOnStartup().catch(function (err) {
     if (chip) { chip.textContent = g; chip.hidden = !g; }
     if (sel) sel.value = g;
     if (typeof FocusMusic !== 'undefined') FocusMusic.setGenreLabel(g);
+    syncMusicUI();
   }
 
   var _origUpdateSource = updateSourceLabel;
@@ -2966,6 +2967,11 @@ resumeMostRecentOnStartup().catch(function (err) {
   }
 
   /* Music UI */
+  var MUSIC_FAMILY_LABELS = {
+    scifi: 'Sci-fi', action: 'Action', horror: 'Horror', mystery: 'Mystery',
+    romance: 'Romance', historical: 'Historical', calm: 'Calm',
+    fantasy: 'Fantasy', minimal: 'Minimal'
+  };
   function syncMusicUI() {
     if (typeof FocusMusic === 'undefined') return;
     var btn = document.getElementById('btnMusic');
@@ -2973,20 +2979,53 @@ resumeMostRecentOnStartup().catch(function (err) {
     var duck = document.getElementById('btnMusicDuck');
     var vol = document.getElementById('musicVolume');
     var fam = document.getElementById('musicFamilySelect');
+    var famNp = document.getElementById('musicFamilySelectNp');
+    var status = document.getElementById('musicStatusLabel');
+    var isAuto = FocusMusic.getAuto();
+    var enabled = FocusMusic.isEnabled();
     if (btn) {
-      btn.classList.toggle('active', FocusMusic.isEnabled());
-      btn.setAttribute('aria-pressed', FocusMusic.isEnabled() ? 'true' : 'false');
+      btn.classList.toggle('active', enabled);
+      btn.setAttribute('aria-pressed', enabled ? 'true' : 'false');
     }
     if (auto) {
-      auto.classList.toggle('active', FocusMusic.getAuto());
-      auto.setAttribute('aria-pressed', FocusMusic.getAuto() ? 'true' : 'false');
+      auto.classList.toggle('active', isAuto);
+      auto.setAttribute('aria-pressed', isAuto ? 'true' : 'false');
+    }
+    var autoNp = document.getElementById('btnMusicAutoNp');
+    if (autoNp) {
+      autoNp.classList.toggle('active', isAuto);
+      autoNp.setAttribute('aria-pressed', isAuto ? 'true' : 'false');
     }
     if (duck) {
       duck.classList.toggle('active', FocusMusic.getDuck());
       duck.setAttribute('aria-pressed', FocusMusic.getDuck() ? 'true' : 'false');
     }
     if (vol) vol.value = String(Math.round(FocusMusic.getVolume() * 100));
-    if (fam) fam.value = FocusMusic.getFamily();
+    var volNp = document.getElementById('musicVolumeNp');
+    if (volNp) volNp.value = String(Math.round(FocusMusic.getVolume() * 100));
+    var famVal = FocusMusic.getFamily();
+    if (fam) {
+      fam.value = famVal;
+      fam.hidden = !!isAuto;
+    }
+    if (famNp) {
+      famNp.value = famVal;
+      famNp.hidden = !!isAuto;
+    }
+    if (status) {
+      if (!enabled) status.textContent = 'Music: Off';
+      else if (isAuto) {
+        var g = state.currentGenre || 'Other';
+        status.textContent = 'Music: Auto (' + g + ')';
+      } else {
+        status.textContent = 'Music: ' + (MUSIC_FAMILY_LABELS[famVal] || famVal);
+      }
+    }
+    var btnNp = document.getElementById('btnMusicNp');
+    if (btnNp) {
+      btnNp.classList.toggle('active', enabled);
+      btnNp.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+    }
   }
   syncMusicUI();
 
@@ -3293,13 +3332,12 @@ resumeMostRecentOnStartup().catch(function (err) {
   wireMirrorClick('btnMusicAuto', 'btnMusicAutoNp');
   wireMirrorInput('musicVolume', 'musicVolumeNp');
   wireMirrorChange('musicFamilySelect', 'musicFamilySelectNp');
-  wireMirrorChange('genreSelect', 'genreSelectNp');
   wireMirrorChange('genreSelect', 'genreSelectSheet');
 
   // Populate genre mirrors
   function copyGenreOptions() {
     var main = document.getElementById('genreSelect');
-    ['genreSelectNp', 'genreSelectSheet'].forEach(function (id) {
+    ['genreSelectSheet'].forEach(function (id) {
       var el = document.getElementById(id);
       if (!main || !el) return;
       el.innerHTML = main.innerHTML;
@@ -3309,17 +3347,12 @@ resumeMostRecentOnStartup().catch(function (err) {
   setTimeout(copyGenreOptions, 0);
   setInterval(function () {
     var main = document.getElementById('genreSelect');
-    var chip = document.getElementById('genreChip');
-    var chipNp = document.getElementById('genreChipNp');
-    if (chip && chipNp) {
-      chipNp.hidden = chip.hidden;
-      chipNp.textContent = chip.textContent;
+    var sheet = document.getElementById('genreSelectSheet');
+    if (main && sheet) {
+      if (sheet.options.length !== main.options.length) copyGenreOptions();
+      sheet.value = main.value;
     }
-    ['genreSelectNp', 'genreSelectSheet'].forEach(function (id) {
-      var el = document.getElementById(id);
-      if (main && el && el.options.length !== main.options.length) copyGenreOptions();
-      if (main && el) el.value = main.value;
-    });
+    if (typeof syncMusicUI === 'function') syncMusicUI();
     var sc = document.getElementById('sessionCountdown');
     var scNp = document.getElementById('sessionCountdownNp');
     if (sc && scNp) scNp.textContent = sc.textContent;

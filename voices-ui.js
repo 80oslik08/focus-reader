@@ -108,7 +108,13 @@
       langs[code] = true;
     });
     if (filter && filter.options.length <= 1) {
-      Object.keys(langs).sort().forEach(function (code) {
+      var pref = ['sk', 'cs', 'en', 'de'];
+      Object.keys(langs).sort(function (a, b) {
+        var ia = pref.indexOf(a); var ib = pref.indexOf(b);
+        if (ia < 0) ia = 50; if (ib < 0) ib = 50;
+        if (ia !== ib) return ia - ib;
+        return a.localeCompare(b);
+      }).forEach(function (code) {
         var o = document.createElement('option');
         o.value = code;
         o.textContent = code;
@@ -117,12 +123,23 @@
     }
     var want = filter ? filter.value : '';
     var preferred = ['sk', 'cs', 'en', 'de', 'pl', 'hu', 'fr', 'es', 'it', 'ru', 'uk'];
+    var qualityRank = function (q) {
+      q = String(q || '').toLowerCase();
+      if (q === 'medium') return 0;
+      if (q === 'low') return 1;
+      if (q === 'x_low' || q === 'x-low') return 2;
+      if (q === 'high') return 3;
+      return 4;
+    };
     voices.sort(function (a, b) {
       var pa = preferred.indexOf((a.lang || '').slice(0, 2));
       var pb = preferred.indexOf((b.lang || '').slice(0, 2));
       if (pa < 0) pa = 99;
       if (pb < 0) pb = 99;
       if (pa !== pb) return pa - pb;
+      var qa = qualityRank(a.quality);
+      var qb = qualityRank(b.quality);
+      if (qa !== qb) return qa - qb;
       return String(a.id).localeCompare(String(b.id));
     });
     listEl.innerHTML = '';
@@ -136,10 +153,14 @@
       left.innerHTML = '<strong></strong><div class="voice-row-meta"></div>';
       left.querySelector('strong').textContent = v.name || v.id;
       var mb = v.sizeMb != null ? (v.sizeMb.toFixed(1) + ' MB') : 'size n/a';
+      var q = (v.quality || '').toLowerCase();
+      var rec = (q === 'medium') ? ' · Recommended' : '';
       left.querySelector('.voice-row-meta').textContent =
-        (v.lang || '') + ' · ' + (v.quality || '—') + ' · ' + mb +
+        (v.lang || '') + ' · ' + (v.quality || '—') + ' · ' + mb + rec +
         (stored[v.id] ? ' · Downloaded' : '') +
         (v.license ? ' · ' + v.license : '');
+      if (q === 'medium') row.classList.add('voice-recommended');
+      if (stored[v.id]) row.classList.add('voice-downloaded');
       var actions = document.createElement('div');
       actions.className = 'voice-row-actions';
       var btnPrev = document.createElement('button');
@@ -189,7 +210,9 @@
         var est = await navigator.storage.estimate();
         var used = ((est.usage || 0) / (1024 * 1024)).toFixed(1);
         var quota = est.quota ? ((est.quota / (1024 * 1024 * 1024)).toFixed(2) + ' GB') : '?';
-        el.textContent = 'Storage used: ' + used + ' MB / ' + quota;
+        var stored = await storedSet();
+        var n = Object.keys(stored).length;
+        el.textContent = 'Downloaded voices: ' + n + ' · Storage used: ' + used + ' MB / ' + quota;
       }
     } catch (e) { el.textContent = 'Storage: —'; }
   }

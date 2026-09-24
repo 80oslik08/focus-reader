@@ -139,10 +139,7 @@
           <div class="now-playing" id="nowPlaying" aria-label="Now playing">
             <div class="now-playing-head">
               <span class="now-playing-title">Now playing</span>
-              <span class="genre-chip" id="genreChipNp" hidden></span>
-              <label class="genre-select-wrap" for="genreSelectNp"><span class="sr-only">Genre</span>
-                <select id="genreSelectNp" title="Book genre"></select>
-              </label>
+              <span class="now-playing-music-status" id="musicStatusLabel">Music: Off</span>
             </div>
             <div class="now-playing-music">
               <button type="button" class="btn btn-ghost btn-touch" id="btnMusicNp" aria-pressed="false">Music</button>
@@ -150,7 +147,7 @@
               <label class="np-vol" for="musicVolumeNp">Vol
                 <input type="range" id="musicVolumeNp" min="0" max="100" step="1" value="35" />
               </label>
-              <select id="musicFamilySelectNp" title="Music style">
+              <select id="musicFamilySelectNp" title="Music style (manual)" hidden>
                 <option value="scifi">Sci-fi</option>
                 <option value="action">Action</option>
                 <option value="horror">Horror</option>
@@ -167,6 +164,10 @@
               <span>Today <strong id="statsTodayNp">0:00</strong></span>
               <span>Elapsed <strong id="elapsedDisplayNp">0:00</strong></span>
             </div>
+          </div>
+          <div id="voicePrepBanner" class="voice-prep-banner" hidden>
+            <span class="loading-spinner" aria-hidden="true"></span>
+            <span id="voicePrepText">Preparing voice…</span>
           </div>
         </section>
 

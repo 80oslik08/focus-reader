@@ -3124,3 +3124,77 @@ html.is-embed, body.is-embed {
   padding: 0;
   overflow: hidden;
 }
+
+/* A: compact Now playing — no stretch */
+.now-playing {
+  flex: 0 0 auto !important;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.65rem;
+}
+.now-playing-music-status {
+  font-size: 0.82rem;
+  opacity: 0.9;
+  margin-left: auto;
+}
+@media (min-width: 700px) {
+  .player-col-center .now-playing { flex: 0 0 auto !important; }
+  .player-col-center, .player-col-nav, .player-col-controls {
+    align-self: start;
+  }
+}
+#musicFamilySelect[hidden],
+#musicFamilySelectNp[hidden] { display: none !important; }
+
+.voice-prep-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+  padding: 0.4rem 0.65rem;
+  border-radius: 10px;
+  background: rgba(59, 130, 246, 0.15);
+  font-size: 0.85rem;
+}
+.voice-prep-banner[hidden] { display: none !important; }
+
+/* B: focus portrait — use height, larger word, title wrap, chip only */
+body.focus-mode .genre-select-wrap { display: none !important; }
+body.focus-mode .source-label-row {
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.35rem;
+  max-width: 100%;
+  padding: 0 0.5rem;
+}
+body.focus-mode .source-label {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-align: center;
+  max-width: 100%;
+  font-size: clamp(0.75rem, 2.8vw, 0.95rem);
+  line-height: 1.25;
+}
+body.focus-mode .word {
+  font-size: clamp(2rem, 12vw, 4.5rem);
+}
+body.focus-mode:not(.is-landscape) .word {
+  font-size: clamp(2.2rem, 18vw, 5.5rem);
+}
+body.focus-mode:not(.is-landscape) .player-col-center,
+body.focus-mode:not(.is-landscape) .stage-wrap {
+  min-height: calc(100dvh - 5.5rem);
+  justify-content: center;
+}
+body.focus-mode:not(.is-landscape) .stage {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 40vh;
+}
+
+.voice-row.voice-recommended { border-left: 3px solid var(--accent, #3b82f6); }
+.voice-row.voice-downloaded strong::after { content: " ✓"; color: #22c55e; font-size: 0.85em; }

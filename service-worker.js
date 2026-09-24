@@ -1,5 +1,5 @@
 /* Focus Reader service worker — app-shell cache-first; Google APIs network-only */
-var CACHE = 'focus-reader-v21';
+var CACHE = 'focus-reader-v22';
 var PRECACHE = [
   './',
   './index.html',
@@ -23,6 +23,7 @@ var PRECACHE = [
   './voices-ui.js',
   './media-session.js',
   './piper-boot.js',
+  './piper-worker.js',
   './voice-limit.js',
   './library-seed/manifest.json',
   './config.js',
