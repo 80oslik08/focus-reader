@@ -105,8 +105,7 @@ var els = {
   touchHint: document.getElementById('touchHint'),
   sourceLabel: document.getElementById('sourceLabel'),
   btnNaturalPauses: document.getElementById('btnNaturalPauses'),
-  btnTheme: document.getElementById('btnTheme'),
-  themeSelect: document.getElementById('themeSelect'),
+  themeSeg: document.getElementById('themeSeg'),
   voiceHelpNote: document.getElementById('voiceHelpNote')
 };
 
@@ -1762,10 +1761,12 @@ function applyTheme(theme, skipSave) {
   var meta = document.querySelector('meta[name="theme-color"]');
   var colors = { dark: '#0b0d12', black: '#000000', white: '#f4f5f7' };
   if (meta) meta.setAttribute('content', colors[theme] || colors.dark);
-  if (els.themeSelect) els.themeSelect.value = theme;
-  if (els.btnTheme) {
-    els.btnTheme.textContent = theme === 'white' ? 'White' : (theme === 'black' ? 'Black' : 'Dark');
-    els.btnTheme.title = 'Theme: ' + theme;
+  if (els.themeSeg) {
+    els.themeSeg.querySelectorAll('.theme-seg-btn').forEach(function (btn) {
+      var on = btn.getAttribute('data-theme') === theme;
+      btn.classList.toggle('is-active', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
   }
   if (!skipSave) {
     try { localStorage.setItem(LS_THEME, theme); } catch (e) {}
@@ -1773,12 +1774,6 @@ function applyTheme(theme, skipSave) {
       FocusSync.notifySettings({ theme: theme, naturalPauses: state.naturalPauses, sentenceStrip: state.sentenceStripOn, updatedAt: Date.now() });
     }
   }
-}
-
-function cycleTheme() {
-  var order = ['dark', 'black', 'white'];
-  var i = order.indexOf(state.theme);
-  applyTheme(order[(i + 1) % order.length]);
 }
 
 function setListenMode(on) {
@@ -1822,12 +1817,11 @@ if (els.btnNaturalPauses) {
     setNaturalPauses(!state.naturalPauses);
   });
 }
-if (els.btnTheme) {
-  els.btnTheme.addEventListener('click', function () { cycleTheme(); });
-}
-if (els.themeSelect) {
-  els.themeSelect.addEventListener('change', function () {
-    applyTheme(els.themeSelect.value);
+if (els.themeSeg) {
+  els.themeSeg.addEventListener('click', function (e) {
+    var btn = e.target.closest('.theme-seg-btn');
+    if (!btn) return;
+    applyTheme(btn.getAttribute('data-theme'));
   });
 }
 

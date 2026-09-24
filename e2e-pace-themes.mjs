@@ -184,6 +184,104 @@ async function loadBook(page) {
   const bad = longTasks.filter(t => t.duration > 200);
   assert(bad.length === 0, `no long tasks >200ms during listen pause/settings (got ${JSON.stringify(bad.slice(0,3))})`);
 
+
+  // Contrast checks (WCAG-ish relative luminance)
+  function relLum(rgb) {
+    const m = rgb.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+    if (!m) return 0;
+    const to = (c) => {
+      c = Number(c) / 255;
+      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    };
+    const r = to(m[1]), g = to(m[2]), b = to(m[3]);
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  }
+  function parseRGBA(rgb) {
+    const m = String(rgb||'').match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([0-9.]+))?/);
+    if (!m) return { r:0,g:0,b:0,a:1 };
+    return { r:+m[1], g:+m[2], b:+m[3], a: m[4] != null ? +m[4] : 1 };
+  }
+  function compositeOver(fg, bg) {
+    const f = parseRGBA(fg), b = parseRGBA(bg);
+    const a = f.a;
+    return `rgb(${Math.round(f.r*a + b.r*(1-a))}, ${Math.round(f.g*a + b.g*(1-a))}, ${Math.round(f.b*a + b.b*(1-a))})`;
+  }
+  function contrastRatio(fg, bg) {
+    // If bg has alpha, composite over white card
+    const b = parseRGBA(bg);
+    const solidBg = b.a < 0.999 ? compositeOver(bg, 'rgb(255,255,255)') : bg;
+    const L1 = relLum(fg), L2 = relLum(solidBg);
+    const hi = Math.max(L1, L2), lo = Math.min(L1, L2);
+    return (hi + 0.05) / (lo + 0.05);
+  }
+
+  const contrast = await page.evaluate(() => {
+    window.__FOCUS_READER__.setTheme('white');
+    window.__FOCUS_READER__.setIndex(350);
+    const before = document.getElementById('wordBefore');
+    const orp = document.getElementById('wordOrp');
+    const after = document.getElementById('wordAfter');
+    const stage = document.getElementById('stageWrap') || document.getElementById('stage');
+    const strip = document.querySelector('#sentenceStripTrack .strip-word.is-future') ||
+      document.querySelector('#sentenceStripTrack .strip-word:not(.is-current)');
+    const cur = document.querySelector('#sentenceStripTrack .strip-word.is-current');
+    const voice = document.getElementById('voiceSelect');
+    const preview = document.getElementById('jumpPreview');
+    const cs = (el) => el ? getComputedStyle(el) : null;
+    // Walk up for opaque background
+    function opaqueBg(el) {
+      let n = el;
+      while (n && n !== document.documentElement) {
+        const bg = getComputedStyle(n).backgroundColor;
+        if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') return bg;
+        n = n.parentElement;
+      }
+      return 'rgb(255,255,255)';
+    }
+    return {
+      before: cs(before)?.color,
+      orp: cs(orp)?.color,
+      after: cs(after)?.color,
+      stageBg: opaqueBg(document.getElementById('wordOrp') || stage),
+      stripFg: strip && cs(strip).color,
+      curFg: cur && cs(cur).color,
+      curBg: cur && cs(cur).backgroundColor,
+      voiceBg: voice && cs(voice).backgroundColor,
+      voiceFg: voice && cs(voice).color,
+      previewBg: preview && cs(preview).backgroundColor,
+      previewFg: preview && cs(preview).color,
+      themeSeg: !!document.getElementById('themeSeg'),
+      themeSelectGone: !document.getElementById('themeSelect'),
+      btnThemeGone: !document.getElementById('btnTheme'),
+      wordFontPx: parseFloat(cs(document.getElementById('wordRow')).fontSize),
+      stageH: document.getElementById('stage').getBoundingClientRect().height,
+    };
+  });
+  log('contrast raw: ' + JSON.stringify(contrast));
+  const bigBefore = contrastRatio(contrast.before, contrast.stageBg);
+  const bigAfter = contrastRatio(contrast.after, contrast.stageBg);
+  const orpR = contrastRatio(contrast.orp, contrast.stageBg);
+  log(`big word contrast before=${bigBefore.toFixed(2)} after=${bigAfter.toFixed(2)} orp=${orpR.toFixed(2)}`);
+  assert(bigBefore >= 7 && bigAfter >= 7, `big word sides ≥7:1 (before ${bigBefore.toFixed(2)}, after ${bigAfter.toFixed(2)})`);
+  assert(orpR >= 4.5, `ORP red ≥4.5:1 (got ${orpR.toFixed(2)})`);
+  if (contrast.stripFg) {
+    const sc = contrastRatio(contrast.stripFg, contrast.stageBg);
+    log(`strip text contrast=${sc.toFixed(2)}`);
+    assert(sc >= 4.5, `strip text ≥4.5:1 (got ${sc.toFixed(2)})`);
+  }
+  if (contrast.curFg && contrast.curBg) {
+    const cc = contrastRatio(contrast.curFg, contrast.curBg);
+    log(`current strip contrast=${cc.toFixed(2)} on ${contrast.curBg}`);
+    assert(cc >= 4.5, `current strip text ≥4.5:1 (got ${cc.toFixed(2)})`);
+  }
+  // Voice select not dark navy on white
+  const voiceLum = relLum(contrast.voiceBg || 'rgb(0,0,0)');
+  assert(voiceLum > 0.7, `voice select light on white (lum ${voiceLum.toFixed(3)}, bg ${contrast.voiceBg})`);
+  assert(contrast.themeSeg && contrast.themeSelectGone && contrast.btnThemeGone, 'single segmented theme control');
+  assert(contrast.wordFontPx >= 56, `desktop word size ≥56px (got ${contrast.wordFontPx})`);
+  assert(contrast.stageH <= 340, `stage height reduced (got ${contrast.stageH})`);
+
+
   // Themes
   for (const theme of ['dark', 'black', 'white']) {
     const info = await page.evaluate((th) => {
