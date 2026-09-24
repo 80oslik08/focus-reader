@@ -147,19 +147,81 @@ async function run() {
   assert(resp && resp.ok(), 'page HTTP ok', report);
   await waitReady(page);
   await page.evaluate(async () => { if (window.RecentStore) await RecentStore.clearAll(); });
-  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await waitReady(page);
+  await page.waitForTimeout(300);
   await loadBook(page, book, 'Layout Test Book');
   await page.evaluate(() => window.__FOCUS_READER__.setIndex(120));
   await page.waitForTimeout(200);
 
+  async function visualChecks(vpName) {
+    return page.evaluate((vpName) => {
+      const vw = window.innerWidth;
+      const card = document.getElementById('stageWrap');
+      const strip = document.getElementById('sentenceStripWrap');
+      const prog = document.getElementById('progressLabel');
+      const status = document.getElementById('statusLabel');
+      const cr = card.getBoundingClientRect();
+      const sr = strip && !strip.classList.contains('is-hidden') ? strip.getBoundingClientRect() : null;
+      const pr = prog.getBoundingClientRect();
+      const st = status.getBoundingClientRect();
+      const interactive = Array.from(document.querySelectorAll(
+        'button:not([hidden]), input[type="range"], input[type="number"], select'
+      )).filter((el) => {
+        const r = el.getBoundingClientRect();
+        const style = getComputedStyle(el);
+        if (style.display === 'none' || style.visibility === 'hidden' || r.width < 1 || r.height < 1) return false;
+        // skip off-screen accordion content roughly
+        if (r.bottom < 0 || r.top > window.innerHeight + 20) return false;
+        return true;
+      });
+      const clipped2 = [];
+      interactive.forEach((el) => {
+        const r = el.getBoundingClientRect();
+        if (r.left < -1 || r.right > vw + 1) {
+          clipped2.push({ id: el.id || String(el.className).slice(0, 40), left: Math.round(r.left), right: Math.round(r.right) });
+        }
+      });
+      const overlap = !(pr.right <= st.left - 2 || st.right <= pr.left - 2) &&
+        Math.abs(pr.top - st.top) < 20 &&
+        (pr.right > st.left && pr.left < st.right);
+      // better overlap: boxes intersect
+      const boxesOverlap = !(pr.right <= st.left || st.right <= pr.left || pr.bottom <= st.top || st.bottom <= pr.top);
+      const stripInside = !sr || (
+        sr.left >= cr.left - 1 && sr.right <= cr.right + 1 &&
+        sr.top >= cr.top - 1 && sr.bottom <= cr.bottom + 2
+      );
+      return {
+        vw,
+        cardW: cr.width,
+        cardRatio: cr.width / vw,
+        stripInside,
+        progressOverlap: boxesOverlap,
+        progressGap: st.left - pr.right,
+        clipped: clipped2,
+        clippedCount: clipped2.length
+      };
+    }, vpName);
+  }
+
   for (const vp of VIEWPORTS) {
     await page.setViewportSize({ width: vp.width, height: vp.height });
-    await page.waitForTimeout(150);
-    await page.evaluate(() => window.__FOCUS_READER__.updateSentenceStrip({ forceInstant: true, sync: true }));
-    await page.waitForTimeout(80);
+    await page.waitForTimeout(180);
+    await page.evaluate(() => {
+      window.__FOCUS_READER__.setSentenceStripOn(true);
+      window.__FOCUS_READER__.updateSentenceStrip({ forceInstant: true, sync: true });
+    });
+    await page.waitForTimeout(100);
     const ov = await measureOverflow(page);
     assert(!ov.overflow, `${vp.name}: no horizontal overflow (${ov.scrollWidth}/${ov.clientWidth})`, report);
+
+    const vis = await visualChecks(vp.name);
+    report.visual = report.visual || {};
+    report.visual[vp.name] = vis;
+    assert(vis.clippedCount === 0, `${vp.name}: no clipped interactives (${JSON.stringify(vis.clipped.slice(0,3))})`, report);
+    assert(vis.stripInside, `${vp.name}: strip viewport inside reader card`, report);
+    assert(!vis.progressOverlap && vis.progressGap >= 4,
+      `${vp.name}: progress/status not overlapping (gap=${vis.progressGap})`, report);
 
     if (vp.name === 'desktop') {
       const cols = await measureColumns(page);
@@ -167,6 +229,10 @@ async function run() {
         'desktop: column order left-nav, center, right-controls', report);
       assert(cols.center.w > cols.nav.w && cols.center.w > cols.controls.w,
         'desktop: center column widest', report);
+      assert(vis.cardRatio >= 0.55, `desktop: reader card ≥55% viewport (got ${(vis.cardRatio*100).toFixed(1)}%)`, report);
+    }
+    if (vp.name === 'phone' || vp.name === 'narrow') {
+      assert(vis.cardRatio >= 0.90, `${vp.name}: reader card ≥90% viewport (got ${(vis.cardRatio*100).toFixed(1)}%)`, report);
     }
   }
 

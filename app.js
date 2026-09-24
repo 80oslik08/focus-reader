@@ -590,7 +590,11 @@ function scheduleNext() {
   }, ms + extraPara);
 }
 
+function hideTouchHint() {
+  if (els.touchHint) els.touchHint.hidden = true;
+}
 function play() {
+  hideTouchHint();
   if (!totalWords()) {
     applyText(els.source.value, { toast: false, persist: true, nameHint: null });
     if (!totalWords()) {
@@ -716,12 +720,7 @@ function updateJumpScrubUI() {
   state.jumpPendingSec = sec;
   var plan = FocusJump.planJump(state.index, totalWords(), sec, state.wpm);
   var active = sec !== 0 && totalWords() > 0;
-  if (els.jumpReadout) els.jumpReadout.hidden = !active && sec === 0;
-  if (sec === 0) {
-    if (els.jumpReadout) els.jumpReadout.hidden = true;
-  } else if (els.jumpReadout) {
-    els.jumpReadout.hidden = false;
-  }
+  if (els.jumpReadout) els.jumpReadout.hidden = false;
   if (els.jumpTimeLabel) els.jumpTimeLabel.textContent = FocusJump.formatSignedTime(sec);
   if (els.jumpWordsLabel) {
     els.jumpWordsLabel.textContent = FocusJump.formatSignedWords(plan.requestedDelta != null ? plan.requestedDelta : plan.deltaWords);
@@ -733,11 +732,11 @@ function updateJumpScrubUI() {
   }
   var total = totalWords();
   if (els.jumpTargetLabel) {
-    if (total) {
+    if (total && sec !== 0) {
       var pct = Math.round(((plan.targetIndex + 1) / total) * 100);
       els.jumpTargetLabel.textContent = '→ word ' + (plan.targetIndex + 1) + '/' + total + ' (' + pct + '%)';
     } else {
-      els.jumpTargetLabel.textContent = '';
+      els.jumpTargetLabel.textContent = sec === 0 ? 'Drag to preview' : '';
     }
   }
   if (els.jumpClampLabel) {
@@ -752,7 +751,7 @@ function updateJumpScrubUI() {
       els.jumpClampLabel.textContent = '';
     }
   }
-  if (els.jumpPreview && total) {
+  if (els.jumpPreview && total && sec !== 0) {
     var snip = FocusJump.previewSnippet(wordListTexts(), plan.targetIndex, 5);
     els.jumpPreview.innerHTML = snip.html;
   } else if (els.jumpPreview) {
@@ -1574,7 +1573,10 @@ function setListenMode(on) {
     els.btnListen.classList.toggle('active', state.listenMode);
     els.btnListen.setAttribute('aria-pressed', state.listenMode ? 'true' : 'false');
   }
-  if (els.listenVoiceRow) els.listenVoiceRow.hidden = !state.listenMode;
+  if (els.listenVoiceRow) {
+    // Keep selectors visible for picking a voice before enabling Listen
+    els.listenVoiceRow.hidden = false;
+  }
   if (typeof FocusListen !== 'undefined') FocusListen.setListen(state.listenMode);
   updateVoiceLimitUI();
   if (state.playing) {
@@ -1608,6 +1610,10 @@ function populateVoiceSelect() {
   if (!voices.length) voices = FocusListen.getVoices();
   var prev = els.voiceSelect.value;
   els.voiceSelect.innerHTML = '';
+  var ph = document.createElement('option');
+  ph.value = '';
+  ph.textContent = voices.length ? 'Default / system voice' : 'System voice (loading…)';
+  els.voiceSelect.appendChild(ph);
   var groups = {};
   voices.forEach(function (v) {
     var lang = (v.lang || 'und').slice(0, 2);

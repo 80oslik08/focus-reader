@@ -45,7 +45,7 @@
             <div class="jump-scrub" id="jumpScrub">
               <label class="jump-scrub-label" for="jumpSlider">Scrub</label>
               <input type="range" id="jumpSlider" min="-1" max="1" step="0.001" value="0" aria-valuetext="0s" />
-              <div class="jump-readout" id="jumpReadout" hidden>
+              <div class="jump-readout" id="jumpReadout">
                 <div class="jump-readout-main">
                   <span id="jumpTimeLabel">0s</span>
                   <span id="jumpWordsLabel">0 words</span>
@@ -102,7 +102,7 @@
                   <div class="loading-bar"><div class="loading-bar-fill" id="loadingBarFill"></div></div>
                 </div>
               </div>
-              <p class="touch-hint" id="touchHint">Tap · swipe ←→ skip · swipe ↕ speed</p>
+              <p class="touch-hint" id="touchHint">Tap · swipe to skip / speed</p>
             </div>
 
             <div class="sentence-strip-wrap" id="sentenceStripWrap">
@@ -131,18 +131,23 @@
         <!-- RIGHT: playback controls -->
         <aside class="player-col player-col-controls" id="playerColControls" aria-label="Playback controls">
           <div class="controls controls-sticky" id="controls">
+            <div class="controls-group" data-group="playback">
+            <span class="controls-group-label">Playback</span>
             <div class="controls-play-row">
-              <button type="button" class="btn btn-ghost btn-touch" id="btnWpmDown" title="−5 WPM (↓)" aria-label="Decrease speed 5 WPM">−5 WPM</button>
+              <button type="button" class="btn btn-ghost btn-touch" id="btnWpmDown" title="−5 WPM (↓)" aria-label="Decrease speed 5 WPM"><span class="btn-wpm-label-full">−5 WPM</span><span class="btn-wpm-label-short">−5<small>WPM</small></span></button>
               <button type="button" class="btn btn-primary btn-play btn-touch" id="btnPlay" title="Play / Pause (Space)">
                 <svg id="iconPlay" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
                 <svg id="iconPause" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
                 <span id="playLabel">Play</span>
               </button>
-              <button type="button" class="btn btn-ghost btn-touch" id="btnWpmUp" title="+5 WPM (↑)" aria-label="Increase speed 5 WPM">+5 WPM</button>
+              <button type="button" class="btn btn-ghost btn-touch" id="btnWpmUp" title="+5 WPM (↑)" aria-label="Increase speed 5 WPM"><span class="btn-wpm-label-full">+5 WPM</span><span class="btn-wpm-label-short">+5<small>WPM</small></span></button>
+            </div>
             </div>
 
+            <div class="controls-group" data-group="speed">
+            <span class="controls-group-label">Speed</span>
             <div class="speed-panel">
-              <label for="wpmRange">Speed</label>
+              <label for="wpmRange">WPM</label>
               <div class="speed-slider-wrap">
                 <input type="range" id="wpmRange" min="100" max="1000" step="5" value="300" />
                 <div class="voice-limit-track" id="voiceLimitTrack" hidden>
@@ -153,7 +158,10 @@
               <input type="number" id="wpmInput" min="100" max="1000" step="5" value="300" inputmode="numeric" />
               <span class="voice-limit-hint" id="voiceLimitHint" hidden></span>
             </div>
+            </div>
 
+            <div class="controls-group" data-group="listen">
+            <span class="controls-group-label">Listen &amp; more</span>
             <div class="controls-extra-row">
               <button type="button" class="btn btn-ghost btn-touch" id="btnListen" title="Listen mode (speech)" aria-pressed="false">Listen</button>
               <button type="button" class="btn btn-touch" id="btnRestart" title="Restart">Restart</button>
@@ -162,9 +170,9 @@
               <button type="button" class="btn btn-ghost btn-touch btn-controls-more" id="btnControlsMore" aria-expanded="false" title="More controls">More</button>
             </div>
 
-            <div class="listen-voice-row" id="listenVoiceRow" hidden>
+            <div class="listen-voice-row" id="listenVoiceRow">
               <label for="voiceSelect">Voice</label>
-              <select id="voiceSelect"></select>
+              <select id="voiceSelect"><option value="">System voice</option></select>
               <label for="langOverride">Lang</label>
               <select id="langOverride">
                 <option value="">Auto</option>
@@ -180,6 +188,7 @@
                 <option value="ru">Russian</option>
                 <option value="uk">Ukrainian</option>
               </select>
+            </div>
             </div>
           </div>
         </aside>
