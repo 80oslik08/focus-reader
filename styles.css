@@ -2013,11 +2013,17 @@ body.sentence-strip-off .sentence-strip-wrap {
     backdrop-filter: blur(8px);
   }
   .player-col-center .stage {
-    min-height: 160px;
-    height: clamp(150px, 28vh, 220px);
+    min-height: 120px;
+    height: clamp(120px, 22vh, 180px);
+    max-height: 180px;
+    flex: 0 0 auto;
   }
   .player-col-center .word-row {
-    font-size: clamp(32px, 10vw, 56px);
+    font-size: clamp(36px, 11vw, 64px);
+    height: clamp(48px, 14vw, 72px);
+  }
+  .player-col-center .stage-wrap {
+    flex: 0 0 auto;
   }
   .sentence-strip-track {
     font-size: 0.8rem;
