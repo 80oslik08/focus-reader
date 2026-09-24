@@ -2259,15 +2259,19 @@ body.sentence-strip-off .sentence-strip-wrap {
     font-size: 0.75rem;
   }
 
-  .btn-controls-more { display: none !important; }
-  .player-col-controls .speed-panel,
-  .player-col-controls #btnRestart,
-  .player-col-controls #btnFocusControl,
-  .player-col-controls #btnSentenceStrip,
-  .player-col-controls .listen-voice-row,
-  .controls-group-label {
-    display: none !important;
+  .btn-controls-more { display: inline-flex !important; }
+  /* Compact landscape: primary always visible; rest via Controls sheet */
+  .player-col-controls .controls-sheet {
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 50vh;
+    overflow: auto;
   }
+  .player-col-controls.is-controls-expanded .controls-sheet {
+    display: flex;
+  }
+
   .player-col-controls .controls-play-row {
     flex-direction: column;
   }
@@ -2298,11 +2302,24 @@ body.focus-mode .touch-hint {
   display: none !important;
 }
 body.focus-mode .player-row {
-  grid-template-columns: 1fr;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-areas: none !important;
+  justify-items: center;
+  align-items: center;
 }
 body.focus-mode .player-col-center {
-  width: 100%;
+  width: 100% !important;
+  max-width: 960px;
+  margin: 0 auto;
+  grid-column: 1 / -1 !important;
+  justify-self: center;
 }
+body.focus-mode .player-col-nav,
+body.focus-mode .player-col-controls {
+  display: none !important;
+}
+
 body.focus-mode .sentence-strip-wrap {
   display: block;
 }
@@ -2519,3 +2536,188 @@ html[data-theme="white"] .jump-preview-hl {
   color: #111;
 }
 
+
+
+/* ——— Phase A1 UI ——— */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0); border: 0;
+}
+.source-label-row {
+  position: absolute;
+  top: 8px; left: 12px; right: 12px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.source-label-row .source-label {
+  position: static;
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: center;
+  pointer-events: none;
+}
+.genre-chip {
+  pointer-events: none;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  white-space: nowrap;
+}
+.genre-select-wrap {
+  pointer-events: auto;
+  flex: 0 0 auto;
+}
+.genre-select-wrap select {
+  max-width: 9rem;
+  font-size: 0.7rem;
+  padding: 2px 4px;
+}
+.controls-sheet {
+  display: contents;
+}
+.file-btn { display: inline-flex; align-items: center; cursor: pointer; }
+.music-vol-panel { max-width: none; width: 100%; }
+.stats-block { margin-bottom: 12px; }
+
+@media (max-width: 699px) {
+  #btnListenBar { display: inline-flex !important; }
+  .player-col-controls .controls-sheet {
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+    max-height: min(70vh, 520px);
+    overflow: auto;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+    margin-top: 8px;
+  }
+  .player-col-controls.is-controls-expanded .controls-sheet {
+    display: flex;
+  }
+  /* When sheet open, reveal groups that were display:none */
+  .player-col-controls.is-controls-expanded .controls-sheet .speed-panel,
+  .player-col-controls.is-controls-expanded .controls-sheet .listen-voice-row,
+  .player-col-controls.is-controls-expanded .controls-sheet .theme-seg,
+  .player-col-controls.is-controls-expanded .controls-sheet .voice-help-note,
+  .player-col-controls.is-controls-expanded .controls-sheet .controls-group-label,
+  .player-col-controls.is-controls-expanded .controls-sheet #btnRestart,
+  .player-col-controls.is-controls-expanded .controls-sheet #btnFocusControl,
+  .player-col-controls.is-controls-expanded .controls-sheet #btnSentenceStrip,
+  .player-col-controls.is-controls-expanded .controls-sheet #btnNaturalPauses,
+  .player-col-controls.is-controls-expanded .controls-sheet .controls-group {
+    display: flex;
+  }
+  .player-col-controls.is-controls-expanded .controls-sheet .voice-help-note,
+  .player-col-controls.is-controls-expanded .controls-sheet .controls-group-label {
+    display: block;
+  }
+  .player-col-controls.is-controls-expanded .controls-sheet .theme-seg {
+    display: inline-flex;
+  }
+  .player-col-nav .jump-quick {
+    /* ensure jump grid available via jump More as before */
+  }
+}
+@media (min-width: 700px) {
+  #btnListenBar { display: none !important; }
+}
+
+/* ——— Genre chips on rows ——— */
+.genre-chip-sm {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  background: var(--accent, #3b82f6);
+  color: #fff;
+  vertical-align: middle;
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.library-item-title .genre-chip-sm,
+.recent-name .genre-chip-sm { margin-left: 0.35rem; }
+
+/* ——— Extension embed (?embed=1) — compact side-panel ~360–450px ——— */
+html.is-embed,
+body.is-embed {
+  overflow: hidden;
+}
+body.is-embed {
+  --embed-pad: 0.4rem;
+}
+body.is-embed .app-header,
+body.is-embed header.topbar,
+body.is-embed .site-header,
+body.is-embed header.header,
+body.is-embed .header {
+  display: none !important;
+}
+body.is-embed .hero,
+body.is-embed .intro-banner,
+body.is-embed #panelLibrary,
+body.is-embed #panelRecent,
+body.is-embed .library-panel,
+body.is-embed .recent-panel,
+body.is-embed details.advanced,
+body.is-embed .source-panel,
+body.is-embed #sourcePanel,
+body.is-embed .paste-panel,
+body.is-embed .offline-panel,
+body.is-embed .backup-panel,
+body.is-embed .bookmarklet-panel,
+body.is-embed .timer-panel,
+body.is-embed #panelTimer {
+  display: none !important;
+}
+body.is-embed .player-row,
+body.is-embed .layout-player {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  gap: 0.35rem !important;
+  padding: var(--embed-pad) !important;
+  min-height: 100dvh;
+  max-height: 100dvh;
+}
+body.is-embed .player-col-jump,
+body.is-embed .player-col-left {
+  order: 2;
+  max-height: 28vh;
+  overflow: auto;
+}
+body.is-embed .player-col-center {
+  order: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+body.is-embed .player-col-controls {
+  order: 3;
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  background: var(--bg, #0f172a);
+  border-top: 1px solid rgba(255,255,255,0.08);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+body.is-embed .reader-card {
+  min-height: 8rem;
+}
+body.is-embed .word {
+  font-size: clamp(1.6rem, 8vw, 2.4rem);
+}

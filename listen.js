@@ -382,10 +382,18 @@
     }, CANCEL_SPEAK_GAP_MS);
   }
 
+  function prepareWords(wordList) {
+    if (global.FocusRoman && FocusRoman.transformForSpeech) {
+      return FocusRoman.transformForSpeech(wordList || []);
+    }
+    return wordList || [];
+  }
+
   function speakFromWordIndexImmediate(wordList, startIndex, wpm) {
     if (!supportsSpeech() || !listenOn) return;
     var myGen = bumpGen();
     hardCancel();
+    wordList = prepareWords(wordList);
     sentenceQueue = buildSentenceQueue(wordList || [], Math.max(0, startIndex | 0));
     speaking = true;
     handlers._lastWordIndex = startIndex | 0;
@@ -461,6 +469,22 @@
     return buildSentenceQueue(list, 0);
   }
 
+  /** Pluggable TTS engine interface used by the app (speechSynthesis impl). */
+  var SpeechEngine = {
+    name: 'speechSynthesis',
+    supportsBackground: function () { return false; },
+    speak: function (words, from, to, wpm) {
+      var slice = (words || []).slice(from, to == null ? undefined : to);
+      // Remap indices: speakFrom uses absolute indices in full list
+      speakFromWordIndex(words, from, wpm);
+    },
+    stop: function () { stopListening(true); },
+    setRate: function () {},
+    onWord: function (fn) { handlers.onWord = fn; }
+  };
+
+  global.FocusTtsEngine = SpeechEngine;
+
   global.FocusListen = {
     supportsSpeech: supportsSpeech,
     setListen: setListen,
@@ -485,6 +509,8 @@
     pickVoice: pickVoice,
     wpmToRate: wpmToRate,
     getGen: function () { return gen; },
+    prepareWords: prepareWords,
+    engine: SpeechEngine,
     on: function (evt, fn) {
       if (evt === 'word') handlers.onWord = fn;
       if (evt === 'end') handlers.onEnd = fn;

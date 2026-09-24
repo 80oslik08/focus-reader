@@ -220,6 +220,9 @@ function setWpm(v, syncInputs, skipSave) {
   if (syncInputs === undefined) syncInputs = true;
   var prev = state.wpm;
   state.wpm = clampWpm(v);
+  if (!skipSave && prev !== state.wpm) {
+    try { localStorage.setItem('focusReader.wpmTouched', '1'); } catch (e) {}
+  }
   els.wpmDisplay.textContent = String(state.wpm);
   if (syncInputs) {
     els.wpmRange.value = String(state.wpm);
@@ -1126,6 +1129,7 @@ function applyText(text, opts) {
           wordCount: total,
           position: state.index,
           wpm: state.wpm,
+          sourceUrl: opts.sourceUrl || '',
           keepPosition: state.index === 0 && !opts.resetPosition,
           resetPosition: !!opts.resetPosition
         }).then(function (doc) {
@@ -1298,6 +1302,27 @@ function estimateLeftLabel(doc) {
   }
 }
 
+
+function genreChipHtml(bookId, title, text) {
+  if (typeof FocusGenre === 'undefined') return '';
+  var g = FocusGenre.getGenre(bookId, title, text);
+  if (!g) return '';
+  return '<span class="genre-chip genre-chip-sm" title="Genre">' + String(g).replace(/</g, '') + '</span>';
+}
+
+function appendGenreChip(nameEl, bookId, title, text) {
+  if (!nameEl || typeof FocusGenre === 'undefined') return;
+  var existing = nameEl.querySelector('.genre-chip');
+  if (existing) existing.remove();
+  var g = FocusGenre.getGenre(bookId, title, text);
+  if (!g) return;
+  var chip = document.createElement('span');
+  chip.className = 'genre-chip genre-chip-sm';
+  chip.textContent = g;
+  chip.title = 'Genre: ' + g;
+  nameEl.appendChild(chip);
+}
+
 function refreshRecentList() {
   if (!els.recentList || typeof RecentStore === 'undefined') return Promise.resolve();
   return RecentStore.list().then(function (rows) {
@@ -1322,6 +1347,7 @@ function refreshRecentList() {
         '<button type="button" class="recent-remove" title="Remove" aria-label="Remove">×</button>';
       var nameEl = li.querySelector('.recent-name');
       nameEl.textContent = doc.name;
+      appendGenreChip(nameEl, doc.id, doc.name, doc.text);
       if (doc.cloudOnly) {
         var badge = document.createElement('span');
         badge.className = 'cloud-badge';
@@ -1735,11 +1761,13 @@ function setNaturalPauses(on) {
   state.naturalPauses = !!on;
   applyNaturalPausesUI();
   saveNaturalPausesPref();
-  // Reset scheduler epoch so pace changes cleanly
+  // Reset scheduler and reschedule so ON/OFF takes effect immediately
   if (state.playing && !state.listenMode) {
+    stopWordTimer();
     state.schedT0 = null;
     state.schedCumMs = 0;
     state.schedN = 0;
+    scheduleNext();
   }
   updateTimerDisplays();
 }
@@ -2298,7 +2326,18 @@ window.__FOCUS_READER__ = {
 };
 
 loadSessionPrefs();
-setWpm(300);
+setWpm(300, true, true);
+/* Extension side-panel embed */
+(function bootEmbed() {
+  try {
+    var q = new URLSearchParams(location.search);
+    if (q.get('embed') === '1') {
+      document.documentElement.classList.add('is-embed');
+      document.body.classList.add('is-embed');
+    }
+  } catch (e) {}
+})();
+
 ensureUiTick();
 setupAccordionsForViewport();
 setupTouchGestures();
@@ -2339,30 +2378,45 @@ if (els.btnControlsMore && els.playerColControls) {
     var open = !els.playerColControls.classList.contains('is-controls-expanded');
     els.playerColControls.classList.toggle('is-controls-expanded', open);
     els.btnControlsMore.setAttribute('aria-expanded', open ? 'true' : 'false');
-    els.btnControlsMore.textContent = open ? 'Less' : 'More';
+    els.btnControlsMore.textContent = open ? 'Close' : 'Controls';
   });
 }
 loadSentenceStripPref();
 loadNaturalPausesPref();
 loadThemePref();
-window.addEventListener('resize', function () {
-  updateSentenceStrip({ forceInstant: true });
-});
-
-window.addEventListener('resize', function () {
+function reflowReaderLayout() {
+  document.body.classList.toggle('is-landscape', window.matchMedia('(orientation: landscape)').matches);
   var token = currentToken();
-  if (token) renderWord(token.text);
+  if (token) renderWord(token.text, { forceInstant: true, reanchor: true, jump: true });
+  else updateSentenceStrip({ forceInstant: true, reanchor: true });
+  if (typeof fitWordToStage === 'function' && token) {
+    try {
+      var parts = splitAtOrp(token.text);
+      fitWordToStage(parts.before, parts.orp, parts.after);
+    } catch (e) {}
+  }
+}
+window.addEventListener('resize', reflowReaderLayout);
+window.addEventListener('orientationchange', function () {
+  setTimeout(reflowReaderLayout, 50);
+  setTimeout(reflowReaderLayout, 300);
 });
+if (window.visualViewport) {
+  visualViewport.addEventListener('resize', reflowReaderLayout);
+  visualViewport.addEventListener('scroll', reflowReaderLayout);
+}
+window.matchMedia('(orientation: landscape)').addEventListener('change', reflowReaderLayout);
 window.matchMedia('(max-width: 720px)').addEventListener('change', setupAccordionsForViewport);
 document.addEventListener('fullscreenchange', function () {
+  reflowReaderLayout();
   if (!document.fullscreenElement && state.focusMode) {
-    // user exited OS fullscreen — keep CSS focus or drop? Drop to stay consistent
     state.focusMode = false;
     document.body.classList.remove('focus-mode');
     if (els.btnFocus) {
       els.btnFocus.setAttribute('aria-pressed', 'false');
       els.btnFocus.textContent = 'Focus';
     }
+    reflowReaderLayout();
   }
 });
 document.addEventListener('visibilitychange', function () {
@@ -2620,6 +2674,7 @@ function renderLibraryLists(publicBooks, driveFiles, driveMsg) {
       btn.className = 'library-item';
       btn.innerHTML = '<span class="library-item-title"></span><span class="library-item-meta"></span>';
       btn.querySelector('.library-item-title').textContent = b.title;
+      appendGenreChip(btn.querySelector('.library-item-title'), b.id || b.file || b.title, b.title, '');
       btn.querySelector('.library-item-meta').textContent =
         (b.words ? b.words.toLocaleString() + ' words' : '') +
         (b.bytes ? ' · ' + FocusLibrary.formatSize(b.bytes) : '') +
@@ -2647,6 +2702,7 @@ function renderLibraryLists(publicBooks, driveFiles, driveMsg) {
         btn.className = 'library-item';
         btn.innerHTML = '<span class="library-item-title"></span><span class="library-item-meta"></span>';
         btn.querySelector('.library-item-title').textContent = f.name;
+        appendGenreChip(btn.querySelector('.library-item-title'), f.id || f.name, f.name, '');
         btn.querySelector('.library-item-meta').textContent =
           FocusLibrary.formatSize(f.size) + ' · ' + (f.mimeType || 'file');
         btn.addEventListener('click', function () { openDriveBook(f); });
@@ -2764,5 +2820,371 @@ wireLibraryUi();
 resumeMostRecentOnStartup().catch(function (err) {
   console.error(err);
 });
+
+
+
+/* ——— Phase A1: genre, music, stats, digits, offline, receiver ——— */
+(function phaseA1() {
+  var LS_DIGITS = 'focusReader.digitsChapters';
+  state.digitsChapters = false;
+  try { state.digitsChapters = localStorage.getItem(LS_DIGITS) === '1'; } catch (e) {}
+
+  function fmtDur(ms) {
+    ms = Math.max(0, ms || 0);
+    var s = Math.floor(ms / 1000);
+    var m = Math.floor(s / 60);
+    var h = Math.floor(m / 60);
+    s = s % 60; m = m % 60;
+    if (h) return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+    return m + ':' + String(s).padStart(2, '0');
+  }
+
+  function refreshStatsUI() {
+    if (typeof FocusStats === 'undefined') return;
+    var s = FocusStats.summarize();
+    var elT = document.getElementById('statsToday');
+    var elW = document.getElementById('statsWeek');
+    var elA = document.getElementById('statsAll');
+    var elB = document.getElementById('statsBookLine');
+    if (elT) elT.textContent = fmtDur(s.today.ms) + ' · ' + (s.today.words || 0) + 'w';
+    if (elW) elW.textContent = fmtDur(s.week.ms) + ' · ' + (s.week.words || 0) + 'w';
+    if (elA) elA.textContent = fmtDur(s.all.ms) + ' · ' + (s.all.words || 0) + 'w';
+    if (elB && state.currentDocId && s.byBook[state.currentDocId]) {
+      var b = s.byBook[state.currentDocId];
+      elB.textContent = 'This book: ' + fmtDur(b.ms) + ' · ' + (b.words || 0) + 'w · ' + (b.sessions || 0) + ' sessions';
+    } else if (elB) elB.textContent = 'Per-book: —';
+  }
+
+  function populateGenreSelect() {
+    var sel = document.getElementById('genreSelect');
+    if (!sel || typeof FocusGenre === 'undefined') return;
+    sel.innerHTML = '';
+    FocusGenre.GENRES.forEach(function (g) {
+      var o = document.createElement('option');
+      o.value = g; o.textContent = g;
+      sel.appendChild(o);
+    });
+  }
+
+  function syncGenreUI() {
+    if (typeof FocusGenre === 'undefined') return;
+    var g = FocusGenre.getGenre(state.currentDocId, state.currentDocName, els.source && els.source.value);
+    state.currentGenre = g;
+    var chip = document.getElementById('genreChip');
+    var sel = document.getElementById('genreSelect');
+    if (chip) { chip.textContent = g; chip.hidden = !g; }
+    if (sel) sel.value = g;
+    if (typeof FocusMusic !== 'undefined') FocusMusic.setGenreLabel(g);
+  }
+
+  var _origUpdateSource = updateSourceLabel;
+  updateSourceLabel = function () {
+    _origUpdateSource();
+    syncGenreUI();
+  };
+
+  populateGenreSelect();
+  var genreSel = document.getElementById('genreSelect');
+  if (genreSel) {
+    genreSel.addEventListener('change', function () {
+      if (!state.currentDocId || typeof FocusGenre === 'undefined') return;
+      FocusGenre.setGenre(state.currentDocId, genreSel.value);
+      syncGenreUI();
+      if (typeof FocusSync !== 'undefined' && FocusSync.notifySettings) {
+        FocusSync.notifySettings({ genres: FocusGenre.loadMap(), updatedAt: Date.now() });
+      }
+    });
+  }
+
+  var chkDigits = document.getElementById('chkDigitsChapters');
+  if (chkDigits) {
+    chkDigits.checked = !!state.digitsChapters;
+    chkDigits.addEventListener('change', function () {
+      state.digitsChapters = !!chkDigits.checked;
+      try { localStorage.setItem(LS_DIGITS, state.digitsChapters ? '1' : '0'); } catch (e) {}
+    });
+  }
+
+  /* Music UI */
+  function syncMusicUI() {
+    if (typeof FocusMusic === 'undefined') return;
+    var btn = document.getElementById('btnMusic');
+    var auto = document.getElementById('btnMusicAuto');
+    var duck = document.getElementById('btnMusicDuck');
+    var vol = document.getElementById('musicVolume');
+    var fam = document.getElementById('musicFamilySelect');
+    if (btn) {
+      btn.classList.toggle('active', FocusMusic.isEnabled());
+      btn.setAttribute('aria-pressed', FocusMusic.isEnabled() ? 'true' : 'false');
+    }
+    if (auto) {
+      auto.classList.toggle('active', FocusMusic.getAuto());
+      auto.setAttribute('aria-pressed', FocusMusic.getAuto() ? 'true' : 'false');
+    }
+    if (duck) {
+      duck.classList.toggle('active', FocusMusic.getDuck());
+      duck.setAttribute('aria-pressed', FocusMusic.getDuck() ? 'true' : 'false');
+    }
+    if (vol) vol.value = String(Math.round(FocusMusic.getVolume() * 100));
+    if (fam) fam.value = FocusMusic.getFamily();
+  }
+  syncMusicUI();
+
+  var btnMusic = document.getElementById('btnMusic');
+  if (btnMusic) btnMusic.addEventListener('click', function () {
+    FocusMusic.setEnabled(!FocusMusic.isEnabled());
+    syncMusicUI();
+    if (FocusMusic.isEnabled() && state.playing) FocusMusic.start();
+    else FocusMusic.stop();
+  });
+  var btnAuto = document.getElementById('btnMusicAuto');
+  if (btnAuto) btnAuto.addEventListener('click', function () {
+    FocusMusic.setAuto(!FocusMusic.getAuto());
+    syncMusicUI();
+    if (FocusMusic.getAuto()) syncGenreUI();
+  });
+  var btnDuck = document.getElementById('btnMusicDuck');
+  if (btnDuck) btnDuck.addEventListener('click', function () {
+    FocusMusic.setDuck(!FocusMusic.getDuck());
+    syncMusicUI();
+  });
+  var musicVol = document.getElementById('musicVolume');
+  if (musicVol) musicVol.addEventListener('input', function () {
+    FocusMusic.setVolume(Number(musicVol.value) / 100);
+  });
+  var famSel = document.getElementById('musicFamilySelect');
+  if (famSel) famSel.addEventListener('change', function () {
+    FocusMusic.setAuto(false);
+    FocusMusic.setFamily(famSel.value);
+    syncMusicUI();
+  });
+  var musicFile = document.getElementById('musicFileInput');
+  if (musicFile) musicFile.addEventListener('change', function () {
+    var f = musicFile.files && musicFile.files[0];
+    if (!f) return;
+    var g = (document.getElementById('genreSelect') || {}).value || 'Other';
+    FocusMusic.addUserTrack(g, f).then(function () {
+      showToast('Music added for ' + g + ' (local only)');
+    }).catch(function () { showToast('Could not store music file'); });
+  });
+
+  /* Wrap play/pause for music + stats accrual */
+  var _play = play;
+  var _pause = pause;
+  var statsTickAt = null;
+  var statsWordsAt = 0;
+  play = function () {
+    _play();
+    statsTickAt = Date.now();
+    statsWordsAt = state.wordsReadSession;
+    if (typeof FocusMusic !== 'undefined' && FocusMusic.isEnabled()) FocusMusic.start();
+    if (typeof FocusStats !== 'undefined') FocusStats.noteSession(state.currentDocId);
+  };
+  pause = function () {
+    if (typeof FocusMusic !== 'undefined') FocusMusic.stop();
+    if (typeof FocusStats !== 'undefined' && statsTickAt) {
+      var ms = Date.now() - statsTickAt;
+      var dw = Math.max(0, state.wordsReadSession - statsWordsAt);
+      FocusStats.addReading(state.currentDocId, ms, dw, state.wpm);
+      refreshStatsUI();
+    }
+    statsTickAt = null;
+    _pause();
+  };
+  // re-bind play button if needed — togglePlay uses play/pause closures; update window export
+  if (window.__FOCUS_READER__) {
+    window.__FOCUS_READER__.play = play;
+    window.__FOCUS_READER__.pause = pause;
+  }
+
+  /* Duck music when listen speaks */
+  if (typeof FocusListen !== 'undefined') {
+    var prevWord = null;
+    FocusListen.on('word', function (wi) {
+      if (typeof FocusMusic !== 'undefined') FocusMusic.notifyVoice(true);
+      // chain: existing handler was overwritten? App already set one — re-set combined below
+    });
+  }
+  // Re-install listen word handler combining duck + advance (app set earlier)
+  if (typeof FocusListen !== 'undefined') {
+    FocusListen.on('word', function (wi) {
+      if (typeof FocusMusic !== 'undefined') FocusMusic.notifyVoice(true);
+      if (!state.listenMode || !state.playing) return;
+      if (wi < 0) return;
+      if (wi > state.index) state.wordsReadSession += (wi - state.index);
+      state.index = Math.min(totalWords() - 1, Math.max(0, wi));
+      var token = currentToken();
+      if (token) {
+        var text = token.text;
+        if (state.digitsChapters && typeof FocusRoman !== 'undefined') {
+          var words = wordListTexts();
+          var prepared = FocusRoman.transformForSpeech(words);
+          if (prepared[state.index]) text = prepared[state.index];
+        }
+        renderWord(text, { reanchor: false });
+      }
+      updateProgress();
+      scheduleSaveProgress(false);
+    });
+    FocusListen.on('end', function () {
+      if (typeof FocusMusic !== 'undefined') FocusMusic.notifyVoice(false);
+    });
+  }
+
+  /* Controls sheet (phone) */
+  var sheet = document.getElementById('controlsSheet');
+  if (els.btnControlsMore && els.playerColControls) {
+    // replace prior listener behavior: open sheet + expand
+    els.btnControlsMore.textContent = 'Controls';
+  }
+  var btnListenBar = document.getElementById('btnListenBar');
+  if (btnListenBar) {
+    btnListenBar.addEventListener('click', function () {
+      setListenMode(!state.listenMode);
+      btnListenBar.classList.toggle('active', state.listenMode);
+      btnListenBar.setAttribute('aria-pressed', state.listenMode ? 'true' : 'false');
+    });
+  }
+
+  /* Offline download */
+  var btnOff = document.getElementById('btnOfflineDownload');
+  var offStatus = document.getElementById('offlineStatus');
+  function refreshStorageEstimate() {
+    if (!offStatus || !navigator.storage || !navigator.storage.estimate) {
+      if (offStatus) offStatus.textContent = 'Storage estimate unavailable';
+      return;
+    }
+    navigator.storage.estimate().then(function (est) {
+      var used = ((est.usage || 0) / 1048576).toFixed(1);
+      var quota = ((est.quota || 0) / 1048576).toFixed(0);
+      offStatus.textContent = 'Storage used: ' + used + ' MB / ' + quota + ' MB';
+    });
+  }
+  refreshStorageEstimate();
+  if (btnOff) {
+    btnOff.addEventListener('click', function () {
+      btnOff.disabled = true;
+      if (navigator.storage && navigator.storage.persist) {
+        navigator.storage.persist().catch(function () {});
+      }
+      if (typeof FocusLibrary === 'undefined') {
+        showToast('Library unavailable');
+        btnOff.disabled = false;
+        return;
+      }
+      FocusLibrary.loadPublicManifest().then(function (m) {
+        var books = (m && m.books) || [];
+        var i = 0;
+        function next() {
+          if (i >= books.length) {
+            showToast('Offline library ready');
+            btnOff.disabled = false;
+            refreshStorageEstimate();
+            return;
+          }
+          var b = books[i++];
+          if (offStatus) offStatus.textContent = 'Caching ' + i + '/' + books.length + ': ' + b.title;
+          FocusLibrary.loadPublicBook(b.file).then(function (text) {
+            if (typeof RecentStore !== 'undefined') {
+              return RecentStore.upsertDocument({
+                name: b.title, type: 'library', text: text,
+                wordCount: text.split(/\s+/).length, position: 0, wpm: state.wpm,
+                keepPosition: true
+              });
+            }
+          }).catch(function () {}).then(next);
+        }
+        next();
+      }).catch(function () {
+        showToast('Could not load manifest');
+        btnOff.disabled = false;
+      });
+    });
+  }
+
+  /* Backup */
+  var btnExp = document.getElementById('btnExportBackup');
+  if (btnExp) btnExp.addEventListener('click', function () {
+    if (typeof FocusBackup !== 'undefined') FocusBackup.download();
+  });
+  var bakIn = document.getElementById('backupFileInput');
+  if (bakIn) bakIn.addEventListener('change', function () {
+    var f = bakIn.files && bakIn.files[0];
+    if (!f || typeof FocusBackup === 'undefined') return;
+    FocusBackup.importFile(f).then(function () {
+      showToast('Backup restored — reloading');
+      setTimeout(function () { location.reload(); }, 600);
+    }).catch(function () { showToast('Import failed'); });
+  });
+
+  /* Bookmarklet */
+  var bm = document.getElementById('bookmarkletLink');
+  if (bm) {
+    var code = "javascript:(function(){var t='',s=window.getSelection&&String(window.getSelection());if(s&&s.trim().length>40)t=s;if(!t){var b=document.body.cloneNode(true);['script','style','nav','footer','header','aside','noscript'].forEach(function(tag){b.querySelectorAll(tag).forEach(function(n){n.remove();});});var best='',bestN=0;b.querySelectorAll('p,article,section,div').forEach(function(el){var x=(el.innerText||'').trim();if(x.length>bestN){bestN=x.length;best=x;}});t=best;}t=(t||'').slice(0,2e6);var payload={type:'FR_LOAD',title:document.title,text:t,sourceUrl:location.href};var w=window.open('https://80oslik08.github.io/focus-reader/');var sent=false;function send(src){if(sent)return;sent=true;try{src.postMessage(payload,'*');}catch(e){}}window.addEventListener('message',function(ev){if(ev.data&&ev.data.type==='FR_READY'&&ev.source===w)send(ev.source);});var n=0;var iv=setInterval(function(){n++;if(!w||w.closed||sent){clearInterval(iv);return;}try{w.postMessage({type:'FR_PING'},'*');}catch(e){}if(n>40)clearInterval(iv);},250);})();";
+    bm.setAttribute('href', code);
+    bm.textContent = 'Focus Reader: Read page';
+  }
+
+  /* Receiver */
+  if (typeof FocusReceiver !== 'undefined') {
+    FocusReceiver.onLoad(function (payload) {
+      showToast('Loaded from ' + (payload.host || 'external'));
+      els.source.value = payload.text;
+      var opts = {
+        toast: true,
+        persist: true,
+        name: payload.title || 'Shared text',
+        type: 'share',
+        position: 0,
+        sourceUrl: payload.sourceUrl || ''
+      };
+      return applyText(payload.text, opts).then(function () {
+        if (payload.genre && state.currentDocId && typeof FocusGenre !== 'undefined') {
+          FocusGenre.setGenre(state.currentDocId, payload.genre);
+          syncGenreUI();
+        }
+        /* Honor wpmHint only if user has never set WPM on this device */
+        var touched = false;
+        try { touched = localStorage.getItem('focusReader.wpmTouched') === '1'; } catch (e) {}
+        if (!touched && payload.wpmHint != null && isFinite(payload.wpmHint)) {
+          setWpm(payload.wpmHint, true, true);
+        }
+        if (payload.sourceUrl && state.currentDocId && typeof RecentStore !== 'undefined') {
+          RecentStore.get(state.currentDocId).then(function (doc) {
+            if (!doc) return;
+            doc.sourceUrl = payload.sourceUrl;
+            return RecentStore.put(doc);
+          }).catch(function () {});
+        }
+      });
+    });
+  }
+  try {
+    var share = sessionStorage.getItem('focusReader.sharePayload');
+    if (share) {
+      sessionStorage.removeItem('focusReader.sharePayload');
+      var p = JSON.parse(share);
+      FocusReceiver.acceptLoad(p, location.origin);
+    }
+  } catch (e) {}
+
+  refreshStatsUI();
+  setInterval(refreshStatsUI, 15000);
+
+  window.__FOCUS_READER__ = window.__FOCUS_READER__ || {};
+  Object.assign(window.__FOCUS_READER__, {
+    refreshStatsUI: refreshStatsUI,
+    syncGenreUI: syncGenreUI,
+    syncMusicUI: syncMusicUI,
+    reflowReaderLayout: typeof reflowReaderLayout === 'function' ? reflowReaderLayout : function () {},
+    getGenre: function () { return state.currentGenre; },
+    setDigitsChapters: function (on) {
+      state.digitsChapters = !!on;
+      if (chkDigits) chkDigits.checked = !!on;
+      try { localStorage.setItem(LS_DIGITS, on ? '1' : '0'); } catch (e) {}
+    }
+  });
+})();
+
 
 })();

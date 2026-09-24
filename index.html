@@ -86,7 +86,13 @@
         <section class="player-col player-col-center" id="playerColCenter" aria-label="Reader">
           <div class="stage-wrap" id="stageWrap">
             <div class="stage" id="stage" tabindex="0" role="application" aria-label="Reader. Tap play/pause. Swipe to skip or change speed.">
-              <div class="source-label" id="sourceLabel" hidden></div>
+              <div class="source-label-row" id="sourceLabelRow">
+                <div class="source-label" id="sourceLabel" hidden></div>
+                <span class="genre-chip" id="genreChip" hidden></span>
+                <label class="genre-select-wrap" for="genreSelect"><span class="sr-only">Genre</span>
+                  <select id="genreSelect" title="Book genre"></select>
+                </label>
+              </div>
               <div class="ticks" aria-hidden="true"><span class="notch"></span></div>
               <div class="word-row" id="wordRow">
                 <div class="word-anchor" id="wordAnchor">
@@ -169,9 +175,11 @@
               <button type="button" class="btn btn-ghost btn-touch" id="btnFocusControl" title="Focus mode (F)" aria-pressed="false">Focus</button>
               <button type="button" class="btn btn-ghost btn-touch" id="btnSentenceStrip" title="Toggle sentence line" aria-pressed="true">Sentence line</button>
               <button type="button" class="btn btn-ghost btn-touch" id="btnNaturalPauses" title="Natural pauses (length & punctuation)" aria-pressed="false">Natural pauses</button>
-              <button type="button" class="btn btn-ghost btn-touch btn-controls-more" id="btnControlsMore" aria-expanded="false" title="More controls">More</button>
+              <button type="button" class="btn btn-ghost btn-touch btn-controls-more" id="btnControlsMore" aria-expanded="false" title="Open all controls">Controls</button>
+              <button type="button" class="btn btn-ghost btn-touch" id="btnListenBar" title="Listen" aria-pressed="false">Listen</button>
             </div>
 
+            <div class="controls-sheet" id="controlsSheet">
             <div class="theme-seg" id="themeSeg" role="group" aria-label="Theme">
               <button type="button" class="theme-seg-btn" data-theme="dark" aria-pressed="true">Dark</button>
               <button type="button" class="theme-seg-btn" data-theme="black" aria-pressed="false">Black</button>
@@ -198,6 +206,40 @@
               </select>
             </div>
             <p class="voice-help-note" id="voiceHelpNote">For more natural voices: PC — use Microsoft Edge (Natural voices). iPhone — Settings › Accessibility › Spoken Content › Voices, download Enhanced/Premium. Android — Settings › Text-to-speech.</p>
+
+            <div class="controls-group" data-group="reading-opts">
+              <span class="controls-group-label">Reading</span>
+              <label class="beep-toggle"><input type="checkbox" id="chkDigitsChapters" /> Show chapter numbers as digits</label>
+            </div>
+
+            <div class="controls-group" data-group="music" id="musicControls">
+              <span class="controls-group-label">Music</span>
+              <div class="controls-extra-row">
+                <button type="button" class="btn btn-ghost btn-touch" id="btnMusic" aria-pressed="false">Music</button>
+                <button type="button" class="btn btn-ghost btn-touch" id="btnMusicAuto" aria-pressed="true">Auto genre</button>
+                <button type="button" class="btn btn-ghost btn-touch" id="btnMusicDuck" aria-pressed="true">Duck under voice</button>
+              </div>
+              <div class="speed-panel music-vol-panel">
+                <label for="musicVolume">Vol</label>
+                <input type="range" id="musicVolume" min="0" max="100" step="1" value="35" />
+                <select id="musicFamilySelect" title="Music style">
+                  <option value="scifi">Sci-fi</option>
+                  <option value="action">Action/Adventure</option>
+                  <option value="horror">Horror</option>
+                  <option value="mystery">Mystery</option>
+                  <option value="romance">Romance/Drama</option>
+                  <option value="historical">Historical/Epic</option>
+                  <option value="calm">Philosophy/Religion</option>
+                  <option value="fantasy">Children/Fantasy</option>
+                  <option value="minimal">Minimal</option>
+                </select>
+              </div>
+              <label class="file-btn btn btn-ghost btn-touch">Add your music
+                <input type="file" id="musicFileInput" accept="audio/*" hidden />
+              </label>
+              <p class="voice-help-note">Generative ambient music (no downloads). Your files stay on this device only and are not synced.</p>
+            </div>
+            </div><!-- /controlsSheet -->
             </div>
           </div>
         </aside>
@@ -252,6 +294,16 @@
               <span class="timer-stat-label">Avg WPM</span>
               <span class="timer-stat-value" id="avgWpmDisplay">—</span>
             </div>
+          </div>
+
+          <div class="stats-block" id="statsBlock">
+            <h3 class="library-section-title">Stats</h3>
+            <div class="timer-stats">
+              <div class="timer-stat"><span class="timer-stat-label">Today</span><span class="timer-stat-value" id="statsToday">0:00 · 0w</span></div>
+              <div class="timer-stat"><span class="timer-stat-label">This week</span><span class="timer-stat-value" id="statsWeek">0:00 · 0w</span></div>
+              <div class="timer-stat"><span class="timer-stat-label">All time</span><span class="timer-stat-value" id="statsAll">0:00 · 0w</span></div>
+            </div>
+            <p class="sync-meta" id="statsBookLine">Per-book: —</p>
           </div>
 
           <div class="session-block">
@@ -370,6 +422,25 @@
       </div>
     </div>
 
+    <details class="panel accordion" id="panelOffline" open>
+      <summary class="accordion-summary">Offline, backup &amp; Read any page</summary>
+      <div class="accordion-body">
+        <div class="panel-actions">
+          <button type="button" class="btn btn-touch" id="btnOfflineDownload">Download all Library books for offline</button>
+          <button type="button" class="btn btn-ghost btn-touch" id="btnExportBackup">Export everything</button>
+          <label class="btn btn-ghost btn-touch file-btn">Import backup
+            <input type="file" id="backupFileInput" accept="application/json,.json" hidden />
+          </label>
+        </div>
+        <p class="sync-meta" id="offlineStatus">Storage: —</p>
+        <div class="orp-note" id="bookmarkletHelp">
+          <p><strong>Read any page</strong> — drag this bookmarklet to your bookmarks bar:</p>
+          <p><a id="bookmarkletLink" href="#">Focus Reader: Read page</a></p>
+          <p>On phone Chrome: bookmark any page, then edit the bookmark URL to the bookmarklet code (long-press bookmarks → Edit).</p>
+        </div>
+      </div>
+    </details>
+
     <p class="footer-note">Classic Spritz-style ORP RSVP · offline · US20140016867A1 TABLE I</p>
   </div>
 
@@ -381,6 +452,12 @@
   </div>
 
   <script src="orp.js"></script>
+  <script src="roman.js"></script>
+  <script src="genre.js"></script>
+  <script src="stats-store.js"></script>
+  <script src="music.js"></script>
+  <script src="backup.js"></script>
+  <script src="receiver.js"></script>
   <script src="recent-store.js"></script>
   <script src="sync.js"></script>
   <script src="library.js"></script>

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Focus Reader — Share</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #0b0d12; color: #e8eaef; padding: 24px; max-width: 40rem; margin: 0 auto; }
+    a { color: #5b8def; }
+    .err { color: #f87171; }
+  </style>
+</head>
+<body>
+  <h1>Opening in Focus Reader…</h1>
+  <p id="status">Reading shared content…</p>
+  <p id="err" class="err" hidden></p>
+  <script>
+    (function () {
+      var params = new URLSearchParams(location.search);
+      var title = params.get('title') || params.get('text') || 'Shared';
+      var text = params.get('text') || '';
+      var url = params.get('url') || '';
+      var status = document.getElementById('status');
+      var err = document.getElementById('err');
+
+      function go(payload) {
+        sessionStorage.setItem('focusReader.sharePayload', JSON.stringify(payload));
+        location.replace('./#share');
+      }
+
+      if (text && text.trim()) {
+        go({ title: title, text: text, sourceUrl: url });
+        return;
+      }
+      if (url) {
+        status.textContent = 'Fetching URL (only works if CORS allows)…';
+        fetch(url).then(function (r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.text();
+        }).then(function (t) {
+          go({ title: title || url, text: t, sourceUrl: url });
+        }).catch(function () {
+          err.hidden = false;
+          err.innerHTML = 'Could not fetch that URL (CORS blocked). Use the <strong>Read any page</strong> bookmarklet or the browser extension instead.';
+          status.textContent = 'Blocked';
+        });
+        return;
+      }
+      err.hidden = false;
+      err.textContent = 'No shared text or URL.';
+    })();
+  </script>
+</body>
+</html>

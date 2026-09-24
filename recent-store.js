@@ -219,7 +219,8 @@
           lastOpened: now,
           createdAt: existing ? existing.createdAt : now,
           updatedAt: nextUpdated,
-          cloudOnly: false
+          cloudOnly: false,
+          sourceUrl: opts.sourceUrl || (existing && existing.sourceUrl) || ''
         };
         return put(doc).then(function (saved) {
           if (global.FocusSync && FocusSync.notifyLocalChange) {

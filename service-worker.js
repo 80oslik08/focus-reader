@@ -1,5 +1,5 @@
 /* Focus Reader service worker — app-shell cache-first; Google APIs network-only */
-var CACHE = 'focus-reader-v17';
+var CACHE = 'focus-reader-v19';
 var PRECACHE = [
   './',
   './index.html',
@@ -12,6 +12,13 @@ var PRECACHE = [
   './listen.js',
   './jump.js',
   './sentence-strip.js',
+  './share-target.html',
+  './receiver.js',
+  './backup.js',
+  './music.js',
+  './stats-store.js',
+  './genre.js',
+  './roman.js',
   './voice-limit.js',
   './library-seed/manifest.json',
   './config.js',
