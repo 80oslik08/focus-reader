@@ -1787,13 +1787,14 @@ code {
   text-decoration-color: rgba(239, 68, 68, 0.55);
   text-underline-offset: 3px;
 }
-.strip-orp {
-  color: inherit;
-  font-weight: inherit;
+.strip-orp,
+.strip-word .strip-orp {
+  color: inherit !important;
+  font-weight: inherit !important;
 }
 .strip-word.is-current .strip-orp {
-  color: #ef4444;
-  font-weight: 700;
+  color: #ef4444 !important;
+  font-weight: 700 !important;
 }
 body.sentence-strip-off .sentence-strip-wrap {
   display: none;
@@ -1991,7 +1992,15 @@ body.sentence-strip-off .sentence-strip-wrap {
     box-shadow: none !important;
   }
   .player-col-nav {
-    border-bottom: none;
+    border-bottom: none !important;
+    box-shadow: none;
+  }
+  .player-row {
+    gap: 8px;
+  }
+  .player-col-controls {
+    border-top: none !important;
+    box-shadow: 0 -6px 20px rgba(0,0,0,0.4);
   }
   .player-col-center .stage {
     min-height: 160px;
