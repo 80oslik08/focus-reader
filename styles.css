@@ -3197,4 +3197,88 @@ body.focus-mode:not(.is-landscape) .stage {
 }
 
 .voice-row.voice-recommended { border-left: 3px solid var(--accent, #3b82f6); }
-.voice-row.voice-downloaded strong::after { content: " ✓"; color: #22c55e; font-size: 0.85em; }
+
+
+/* Voices manager — row states + overflow */
+.voices-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+.voices-search-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.82rem;
+}
+#voicesSearch {
+  min-width: 12rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.15);
+  background: rgba(0,0,0,0.25);
+  color: inherit;
+}
+.voice-row-check {
+  color: #4ade80;
+  font-weight: 700;
+}
+.voice-row-lang {
+  font-size: 0.85rem;
+  opacity: 0.9;
+  margin-top: 0.1rem;
+}
+.voice-row-actions { justify-content: flex-end; }
+.voice-btn-download { min-width: 6.5rem; }
+.voice-btn-use.is-in-use,
+.voice-btn-use:disabled.is-in-use {
+  opacity: 0.85;
+  cursor: default;
+}
+.voice-overflow {
+  position: relative;
+  display: inline-flex;
+}
+.voice-overflow-btn {
+  min-width: 2.2rem;
+  padding-left: 0.4rem;
+  padding-right: 0.4rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+.voice-overflow-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  min-width: 9rem;
+  padding: 0.25rem;
+  border-radius: 10px;
+  background: var(--panel, #1e293b);
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  display: none;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.voice-overflow.open .voice-overflow-menu,
+.voice-overflow-menu:not([hidden]) {
+  display: flex;
+}
+.voice-overflow-item {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  padding: 0.45rem 0.65rem;
+  border-radius: 8px;
+  font: inherit;
+  cursor: pointer;
+}
+.voice-overflow-item:hover { background: rgba(255,255,255,0.08); }
+.voice-overflow-item.is-danger { color: #f87171; }
+.voice-row.voice-downloading { opacity: 0.85; }
+.voice-row.voice-in-use { outline: 1px solid rgba(59,130,246,0.45); }
