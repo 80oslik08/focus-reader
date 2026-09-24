@@ -2000,7 +2000,8 @@ body.sentence-strip-off .sentence-strip-wrap {
   }
   .player-col-controls {
     border-top: none !important;
-    box-shadow: 0 -6px 20px rgba(0,0,0,0.4);
+    box-shadow: none;
+    background: linear-gradient(180deg, rgba(15,18,26,0.92), rgba(15,18,26,0.98) 12%);
   }
   .player-col-center .stage {
     min-height: 160px;
@@ -2217,8 +2218,11 @@ body.sentence-strip-off .sentence-strip-wrap {
   .player-col-controls .controls-play-row .btn {
     width: 100%;
   }
-  .player-col-controls .btn-wpm-label-full { display: none; }
-  .player-col-controls .btn-wpm-label-short { display: inline-flex; }
+  .player-col-controls .btn-wpm-label-full { display: inline; }
+  .player-col-controls .btn-wpm-label-short { display: none; }
+  .player-col-controls .controls-play-row .btn {
+    font-size: 0.78rem;
+  }
 }
 
 /* Also cover short landscape at 740x360 */
