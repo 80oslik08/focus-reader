@@ -1,0 +1,7 @@
+node_modules/
+.pw-profile/
+verify-live-report.json
+live-phone.png
+live-desktop.png
+package.json
+package-lock.json
