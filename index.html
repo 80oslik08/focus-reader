@@ -86,6 +86,7 @@
         <section class="player-col player-col-center" id="playerColCenter" aria-label="Reader">
           <div class="stage-wrap" id="stageWrap">
             <div class="stage" id="stage" tabindex="0" role="application" aria-label="Reader. Tap play/pause. Swipe to skip or change speed.">
+              <div class="source-label" id="sourceLabel" hidden></div>
               <div class="ticks" aria-hidden="true"><span class="notch"></span></div>
               <div class="word-row" id="wordRow">
                 <div class="word-anchor" id="wordAnchor">
@@ -167,7 +168,18 @@
               <button type="button" class="btn btn-touch" id="btnRestart" title="Restart">Restart</button>
               <button type="button" class="btn btn-ghost btn-touch" id="btnFocusControl" title="Focus mode (F)" aria-pressed="false">Focus</button>
               <button type="button" class="btn btn-ghost btn-touch" id="btnSentenceStrip" title="Toggle sentence line" aria-pressed="true">Sentence line</button>
+              <button type="button" class="btn btn-ghost btn-touch" id="btnNaturalPauses" title="Natural pauses (length & punctuation)" aria-pressed="false">Natural pauses</button>
+              <button type="button" class="btn btn-ghost btn-touch" id="btnTheme" title="Theme">Dark</button>
               <button type="button" class="btn btn-ghost btn-touch btn-controls-more" id="btnControlsMore" aria-expanded="false" title="More controls">More</button>
+            </div>
+
+            <div class="theme-row" id="themeRow">
+              <label for="themeSelect">Theme</label>
+              <select id="themeSelect">
+                <option value="dark">Dark</option>
+                <option value="black">Black (OLED)</option>
+                <option value="white">White</option>
+              </select>
             </div>
 
             <div class="listen-voice-row" id="listenVoiceRow">
@@ -189,6 +201,7 @@
                 <option value="uk">Ukrainian</option>
               </select>
             </div>
+            <p class="voice-help-note" id="voiceHelpNote">For more natural voices: PC — use Microsoft Edge (Natural voices). iPhone — Settings › Accessibility › Spoken Content › Voices, download Enhanced/Premium. Android — Settings › Text-to-speech.</p>
             </div>
           </div>
         </aside>

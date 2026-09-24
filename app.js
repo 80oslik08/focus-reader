@@ -16,6 +16,8 @@ var ORP_TABLE = ORP.ORP_TABLE;
 var LS_SESSION_MIN = 'focusReader.sessionMinutes';
 var LS_BEEP = 'focusReader.beepEnabled';
 var LS_SENTENCE_STRIP = 'focusReader.sentenceStrip';
+var LS_NATURAL_PAUSES = 'focusReader.naturalPauses';
+var LS_THEME = 'focusReader.theme';
 var SAVE_THROTTLE_MS = 2000;
 
 var SAMPLE_TEXT = 'Speed reading with RSVP presents one word at a time, aligned to an Optimal Recognition Point. Your eyes stay fixed while meaning flows forward. Short words flash briefly; longer words linger a little longer. After commas you pause; after full stops you rest longer still.\n\nPractice at a comfortable pace first. Three hundred words per minute is a solid default. Raise the speed when the text feels easy. Focus on comprehension, not only raw throughput.';
@@ -100,7 +102,12 @@ var els = {
   wordAnchor: document.getElementById('wordAnchor'),
   btnFocus: document.getElementById('btnFocus'),
   belowReader: document.getElementById('belowReader'),
-  touchHint: document.getElementById('touchHint')
+  touchHint: document.getElementById('touchHint'),
+  sourceLabel: document.getElementById('sourceLabel'),
+  btnNaturalPauses: document.getElementById('btnNaturalPauses'),
+  btnTheme: document.getElementById('btnTheme'),
+  themeSelect: document.getElementById('themeSelect'),
+  voiceHelpNote: document.getElementById('voiceHelpNote')
 };
 
 var state = {
@@ -116,6 +123,13 @@ var state = {
   jumpUndoStack: [],
   jumpPendingSec: 0,
   sentenceStripOn: true,
+  naturalPauses: false,
+  theme: 'dark',
+  listenWps: null,
+  schedT0: null,
+  schedN: 0,
+  schedRaf: null,
+  schedCumMs: 0,
 
   timer: null,
   sentenceWordCount: 0,
@@ -140,6 +154,16 @@ var state = {
   wakeLock: null,
   baseWordFontPx: null
 };
+
+
+function timingOpts() {
+  return { naturalPauses: !!state.naturalPauses };
+}
+
+function currentWordText() {
+  var t = currentToken();
+  return t ? t.text : null;
+}
 
 function clampWpm(v) {
   var n = Math.round(Number(v) || 300);
@@ -271,6 +295,20 @@ function fitWordToStage(before, orp, after) {
   row.style.fontSize = fs + 'px';
 }
 
+
+function updateSourceLabel() {
+  if (!els.sourceLabel) return;
+  var name = state.currentDocName;
+  if (!name) {
+    if (state.currentDocType === 'paste') name = 'Pasted text';
+    else if (totalWords()) name = 'Pasted text';
+    else name = '';
+  }
+  els.sourceLabel.textContent = name || '';
+  els.sourceLabel.hidden = !name;
+  els.sourceLabel.title = name || '';
+}
+
 function renderWord(word, opts) {
   opts = opts || {};
   if (!word) {
@@ -288,6 +326,7 @@ function renderWord(word, opts) {
   els.wordOrp.textContent = parts.orp;
   els.wordAfter.textContent = parts.after;
   fitWordToStage(parts.before, parts.orp, parts.after);
+  updateSourceLabel();
   updateSentenceStrip(opts);
 }
 
@@ -338,16 +377,11 @@ function updateSentenceStrip(opts) {
   if (!words.length) {
     els.sentenceStripTrack.innerHTML = '';
     els.sentenceStripTrack.style.transform = 'translate3d(0,0,0)';
+    if (typeof SentenceStrip.stopScroll === 'function') SentenceStrip.stopScroll(false);
     return null;
   }
-  var token = currentToken();
-  var dur = 120;
-  if (token && typeof displayDurationMs === 'function') {
-    try {
-      dur = displayDurationMs(token, state.wpm, state.sentenceWordCount || 0);
-    } catch (e) {}
-  }
-  // Double rAF so big ORP layout (fitWordToStage) has applied before we measure
+  var forceInstant = !!opts.forceInstant;
+  var reanchor = !!opts.reanchor || forceInstant || !!opts.jump;
   var run = function () {
     state._lastStripAlign = SentenceStrip.render({
       words: words,
@@ -356,11 +390,35 @@ function updateSentenceStrip(opts) {
       trackEl: els.sentenceStripTrack,
       stripEl: els.sentenceStrip,
       bigOrpEl: els.wordOrp,
-      durationMs: opts.forceInstant ? 0 : dur,
-      forceInstant: !!opts.forceInstant,
+      durationMs: forceInstant ? 0 : 150,
+      forceInstant: forceInstant,
+      reanchor: reanchor,
+      easeMs: opts.easeMs != null ? opts.easeMs : (reanchor && !forceInstant ? 150 : 0),
+      forceRebuild: !!opts.forceRebuild,
+      wpm: state.wpm,
+      listenWps: state.listenMode ? state.listenWps : null,
       radius: 50,
       font: '500 15px system-ui, -apple-system, Segoe UI, sans-serif'
     });
+    if (state.playing && !SentenceStrip.prefersReducedMotion()) {
+      var rt = SentenceStrip.getRuntime && SentenceStrip.getRuntime();
+      if (!rt || !rt.playing) {
+        SentenceStrip.startScroll({
+          wpm: state.wpm,
+          listenWps: state.listenMode ? state.listenWps : null,
+          words: words,
+          index: state.index
+        });
+      } else {
+        // Update velocity target without resetting samples
+        SentenceStrip.startScroll({
+          wpm: state.wpm,
+          listenWps: state.listenMode ? state.listenWps : null,
+          words: words,
+          index: state.index
+        });
+      }
+    }
   };
   if (opts.sync) run();
   else {
@@ -388,8 +446,8 @@ function updateTimerDisplays() {
     els.remainingDisplay.textContent = '—';
     els.totalEstDisplay.textContent = '—';
   } else {
-    var rem = estimateRemainingMs(state.tokens, state.wordIndices, state.index, state.wpm);
-    var tot = estimateRemainingMs(state.tokens, state.wordIndices, 0, state.wpm);
+    var rem = estimateRemainingMs(state.tokens, state.wordIndices, state.index, state.wpm, timingOpts());
+    var tot = estimateRemainingMs(state.tokens, state.wordIndices, 0, state.wpm, timingOpts());
     els.remainingDisplay.textContent = formatDuration(rem);
     els.totalEstDisplay.textContent = formatDuration(tot);
   }
@@ -432,6 +490,10 @@ function stopWordTimer() {
   if (state.timer != null) {
     clearTimeout(state.timer);
     state.timer = null;
+  }
+  if (state.schedRaf != null) {
+    cancelAnimationFrame(state.schedRaf);
+    state.schedRaf = null;
   }
 }
 
@@ -517,6 +579,36 @@ function checkSessionDuringTick() {
   if (rem <= 0) onSessionComplete();
 }
 
+function wordDurationAt(index) {
+  var total = totalWords();
+  if (!total || index < 0 || index >= total) return ORP.baseMs(state.wpm);
+  var ti = state.wordIndices[index];
+  var token = state.tokens[ti];
+  var sentenceCount = state.sentenceWordCount;
+  if (state.naturalPauses && endsSentence(token.text)) {
+    sentenceCount = computeSentenceCountAt(index);
+  }
+  var ms = displayDurationMs(token, state.wpm, sentenceCount, timingOpts());
+  if (state.naturalPauses && index < total - 1) {
+    var curTi = state.wordIndices[index];
+    var nextTi = state.wordIndices[index + 1];
+    var base = ORP.baseMs(state.wpm);
+    for (var j = curTi + 1; j < nextTi; j++) {
+      if (state.tokens[j].type === 'para') {
+        ms += base * 2.5;
+        break;
+      }
+    }
+  }
+  return Math.max(1, ms);
+}
+
+function advanceSentenceCountFor(token) {
+  if (!state.naturalPauses) return;
+  if (endsSentence(token.text)) state.sentenceWordCount = 0;
+  else state.sentenceWordCount += 1;
+}
+
 function scheduleNext() {
   stopWordTimer();
   if (!state.playing) return;
@@ -534,44 +626,51 @@ function scheduleNext() {
   var token = currentToken();
   renderWord(token.text);
   updateProgress();
+  advanceSentenceCountFor(token);
 
-  var sentenceCount = state.sentenceWordCount;
-  if (endsSentence(token.text)) {
-    sentenceCount = computeSentenceCountAt(state.index);
+  // Drift-free: deadline = t0 + cumulative intervals
+  if (state.schedT0 == null) {
+    state.schedT0 = performance.now();
+    state.schedN = 0;
+    state.schedCumMs = 0;
   }
+  var interval = wordDurationAt(state.index);
+  state.schedCumMs += interval;
+  state.schedN += 1;
+  var deadline = state.schedT0 + state.schedCumMs;
 
-  var ms = displayDurationMs(token, state.wpm, sentenceCount);
-
-  if (endsSentence(token.text)) {
-    state.sentenceWordCount = 0;
-  } else {
-    state.sentenceWordCount += 1;
-  }
-
-  var extraPara = 0;
-  if (state.index < total - 1) {
-    var curTi = state.wordIndices[state.index];
-    var nextTi = state.wordIndices[state.index + 1];
-    for (var j = curTi + 1; j < nextTi; j++) {
-      if (state.tokens[j].type === 'para') {
-        extraPara = (60000 / state.wpm) * 2.5;
-        break;
-      }
-    }
-  }
-
-  // Cap wait if session ends sooner
   if (state.sessionActive) {
     var srem = liveSessionRemainingMs();
-    if (srem != null && srem < ms + extraPara) {
-      state.timer = setTimeout(function () {
-        onSessionComplete();
-      }, Math.max(0, srem));
+    if (srem != null && srem < interval) {
+      state.timer = setTimeout(function () { onSessionComplete(); }, Math.max(0, srem));
       return;
     }
   }
 
-  state.timer = setTimeout(function () {
+  function armWait() {
+    if (!state.playing) return;
+    var wait = deadline - performance.now();
+    if (wait <= 0) {
+      onWordDeadline();
+      return;
+    }
+    if (wait < 24) {
+      state.schedRaf = requestAnimationFrame(function () {
+        state.schedRaf = null;
+        if (performance.now() >= deadline) onWordDeadline();
+        else armWait();
+      });
+    } else {
+      state.timer = setTimeout(function () {
+        state.timer = null;
+        onWordDeadline();
+      }, wait);
+    }
+  }
+
+  function onWordDeadline() {
+    if (!state.playing) return;
+    var total = totalWords();
     state.index += 1;
     state.wordsReadSession += 1;
     scheduleSaveProgress(false);
@@ -586,8 +685,11 @@ function scheduleNext() {
       scheduleSaveProgress(true);
       return;
     }
+    // If behind schedule, scheduleNext will see wait<=0 and advance immediately (no drift)
     scheduleNext();
-  }, ms + extraPara);
+  }
+
+  armWait();
 }
 
 function hideTouchHint() {
@@ -608,9 +710,15 @@ function play() {
   }
   if (els.sessionBanner) els.sessionBanner.hidden = true;
   startPlayClocks();
+  state.schedT0 = null;
+  state.schedN = 0;
+  state.schedCumMs = 0;
   setPlayingUI(true);
   requestWakeLock();
   ensureUiTick();
+  if (typeof SentenceStrip !== 'undefined' && state.sentenceStripOn && !state.listenMode) {
+    SentenceStrip.startScroll({ wpm: state.wpm, words: wordListTexts(), index: state.index });
+  }
   if (state.listenMode && typeof FocusListen !== 'undefined' && FocusListen.supportsSpeech()) {
     stopWordTimer();
     FocusListen.speakFromWordIndex(
@@ -626,11 +734,13 @@ function play() {
 function pause() {
   stopWordTimer();
   if (typeof FocusListen !== 'undefined') FocusListen.stop(true);
+  if (typeof SentenceStrip !== 'undefined') SentenceStrip.stopScroll(true);
   flushPlayClock();
+  state.schedT0 = null;
   setPlayingUI(false);
   releaseWakeLock();
   var token = currentToken();
-  if (token) renderWord(token.text);
+  if (token) renderWord(token.text, { stripReanchor: false });
   updateProgress();
   scheduleSaveProgress(true);
 }
@@ -798,17 +908,21 @@ function jumpBySeconds(seconds, opts) {
 
   state.index = plan.targetIndex;
   state.sentenceWordCount = 0;
+  state.schedT0 = null;
+  state.schedCumMs = 0;
+  state.schedN = 0;
   // Don't change elapsed time on jumps; wordsReadSession only grows forward
   if (state.index > fromIdx) state.wordsReadSession += (state.index - fromIdx);
 
   var token = currentToken();
-  if (token) renderWord(token.text);
+  if (token) renderWord(token.text, { forceInstant: true, jump: true, reanchor: true });
   updateProgress();
   // Immediate persist (respects positionRestored gating)
   scheduleSaveProgress(true);
   if (typeof RecentStore !== 'undefined' && state.currentDocId && state.positionRestored) {
     RecentStore.updateProgress(state.currentDocId, {
       position: state.index,
+      positionWord: currentWordText(),
       wpm: state.wpm,
       lastOpened: Date.now()
     }).then(function () { refreshRecentList(); }).catch(function () {});
@@ -820,6 +934,9 @@ function jumpBySeconds(seconds, opts) {
     if (state.listenMode && typeof FocusListen !== 'undefined' && FocusListen.supportsSpeech()) {
       FocusListen.speakFromWordIndex(wordListTexts(), state.index, state.wpm);
     } else {
+      if (typeof SentenceStrip !== 'undefined' && state.sentenceStripOn) {
+        SentenceStrip.startScroll({ wpm: state.wpm, words: wordListTexts(), index: state.index });
+      }
       scheduleNext();
     }
   } else {
@@ -902,6 +1019,7 @@ function flushCurrentBook() {
   }
   return RecentStore.updateProgress(state.currentDocId, {
     position: state.index,
+    positionWord: currentWordText(),
     wpm: state.wpm,
     lastOpened: Date.now()
   }).then(function () {
@@ -947,6 +1065,15 @@ function applyText(text, opts) {
       var pos = restorePos != null ? restorePos : (opts.position != null ? opts.position : 0);
       if (pos < 0) pos = 0;
       if (total && pos >= total) pos = total - 1;
+      var wantWord = opts.positionWord || null;
+      if (!wantWord && opts.docId && typeof RecentStore !== 'undefined') {
+        /* filled below when doc loaded */
+      }
+      if (wantWord && total && typeof ORP.findNearestWordIndex === 'function') {
+        var texts = [];
+        for (var wi = 0; wi < state.wordIndices.length; wi++) texts.push(state.tokens[state.wordIndices[wi]].text);
+        pos = ORP.findNearestWordIndex(texts, pos, wantWord, 50);
+      }
       state.index = total ? pos : 0;
       state.sentenceWordCount = 0;
       state.positionRestored = true;
@@ -1020,6 +1147,7 @@ function applyText(text, opts) {
           state.currentDocId = doc.id;
           state.currentDocName = doc.name;
           state.currentDocType = doc.type;
+          updateSourceLabel();
           // Ensure stored position matches restored index (don't write 0 over real progress)
           if ((doc.position || 0) !== state.index && state.index > 0) {
             return RecentStore.updateProgress(doc.id, {
@@ -1036,6 +1164,15 @@ function applyText(text, opts) {
         state.currentDocType = opts.type || null;
       }
 
+      // Set display name immediately (upsert is async)
+      if (opts.name) {
+        state.currentDocName = opts.name;
+        state.currentDocType = opts.type || state.currentDocType || 'library';
+      } else if (!state.currentDocName && raw && String(raw).trim()) {
+        state.currentDocName = 'Pasted text';
+        state.currentDocType = state.currentDocType || 'paste';
+      }
+      updateSourceLabel();
       if (opts.resumeNotice && opts.name) {
         showToast('Resumed: ' + opts.name + ' at word ' + (state.index + 1));
       }
@@ -1051,6 +1188,7 @@ function applyText(text, opts) {
       return RecentStore.hashText(raw).then(function (id) {
         return RecentStore.get(id).then(function (existing) {
           if (existing && (existing.position || 0) > 0 && !opts.resetPosition) {
+            if (existing.positionWord) opts.positionWord = existing.positionWord;
             return existing.position;
           }
           return opts.position != null ? opts.position : 0;
@@ -1136,6 +1274,7 @@ function scheduleSaveProgress(force) {
   var run = function () {
     RecentStore.updateProgress(state.currentDocId, {
       position: state.index,
+      positionWord: currentWordText(),
       wpm: state.wpm,
       lastOpened: Date.now()
     }).then(function () {
@@ -1153,7 +1292,7 @@ function estimateLeftLabel(doc) {
     var indices = [];
     tokens.forEach(function (t, i) { if (t.type === 'word') indices.push(i); });
     var pos = Math.min(doc.position || 0, Math.max(0, indices.length - 1));
-    var ms = estimateRemainingMs(tokens, indices, pos, state.wpm);
+    var ms = estimateRemainingMs(tokens, indices, pos, state.wpm, timingOpts());
     return formatDuration(ms) + ' left';
   } catch (e) {
     return '';
@@ -1570,6 +1709,78 @@ bindHoldRepeat(els.btnWpmUp, function () { setWpm(state.wpm + 5); });
 })();
 
 
+
+function loadNaturalPausesPref() {
+  try {
+    var v = localStorage.getItem(LS_NATURAL_PAUSES);
+    state.naturalPauses = v === '1';
+  } catch (e) { state.naturalPauses = false; }
+  applyNaturalPausesUI();
+}
+
+function saveNaturalPausesPref() {
+  try { localStorage.setItem(LS_NATURAL_PAUSES, state.naturalPauses ? '1' : '0'); } catch (e) {}
+  if (typeof FocusSync !== 'undefined' && FocusSync.notifySettings) {
+    FocusSync.notifySettings({ naturalPauses: state.naturalPauses, theme: state.theme, sentenceStrip: state.sentenceStripOn, updatedAt: Date.now() });
+  }
+}
+
+function applyNaturalPausesUI() {
+  if (els.btnNaturalPauses) {
+    els.btnNaturalPauses.classList.toggle('active', state.naturalPauses);
+    els.btnNaturalPauses.setAttribute('aria-pressed', state.naturalPauses ? 'true' : 'false');
+  }
+}
+
+function setNaturalPauses(on) {
+  state.naturalPauses = !!on;
+  applyNaturalPausesUI();
+  saveNaturalPausesPref();
+  // Reset scheduler epoch so pace changes cleanly
+  if (state.playing && !state.listenMode) {
+    state.schedT0 = null;
+    state.schedCumMs = 0;
+    state.schedN = 0;
+  }
+  updateTimerDisplays();
+}
+
+function loadThemePref() {
+  try {
+    var t = localStorage.getItem(LS_THEME) || 'dark';
+    if (t !== 'dark' && t !== 'black' && t !== 'white') t = 'dark';
+    state.theme = t;
+  } catch (e) { state.theme = 'dark'; }
+  applyTheme(state.theme, true);
+}
+
+function applyTheme(theme, skipSave) {
+  theme = theme || 'dark';
+  if (theme !== 'dark' && theme !== 'black' && theme !== 'white') theme = 'dark';
+  state.theme = theme;
+  document.documentElement.setAttribute('data-theme', theme);
+  var meta = document.querySelector('meta[name="theme-color"]');
+  var colors = { dark: '#0b0d12', black: '#000000', white: '#f4f5f7' };
+  if (meta) meta.setAttribute('content', colors[theme] || colors.dark);
+  if (els.themeSelect) els.themeSelect.value = theme;
+  if (els.btnTheme) {
+    els.btnTheme.textContent = theme === 'white' ? 'White' : (theme === 'black' ? 'Black' : 'Dark');
+    els.btnTheme.title = 'Theme: ' + theme;
+  }
+  if (!skipSave) {
+    try { localStorage.setItem(LS_THEME, theme); } catch (e) {}
+    if (typeof FocusSync !== 'undefined' && FocusSync.notifySettings) {
+      FocusSync.notifySettings({ theme: theme, naturalPauses: state.naturalPauses, sentenceStrip: state.sentenceStripOn, updatedAt: Date.now() });
+    }
+  }
+}
+
+function cycleTheme() {
+  var order = ['dark', 'black', 'white'];
+  var i = order.indexOf(state.theme);
+  applyTheme(order[(i + 1) % order.length]);
+}
+
 function setListenMode(on) {
   state.listenMode = !!on;
   if (els.btnListen) {
@@ -1606,16 +1817,30 @@ if (els.btnListen) {
     setListenMode(!state.listenMode);
   });
 }
+if (els.btnNaturalPauses) {
+  els.btnNaturalPauses.addEventListener('click', function () {
+    setNaturalPauses(!state.naturalPauses);
+  });
+}
+if (els.btnTheme) {
+  els.btnTheme.addEventListener('click', function () { cycleTheme(); });
+}
+if (els.themeSelect) {
+  els.themeSelect.addEventListener('change', function () {
+    applyTheme(els.themeSelect.value);
+  });
+}
+
 
 function populateVoiceSelect() {
   if (!els.voiceSelect || typeof FocusListen === 'undefined') return;
   var voices = FocusListen.loadVoices(true);
   if (!voices.length) voices = FocusListen.getVoices();
-  var prev = els.voiceSelect.value;
+  var prev = els.voiceSelect.value || (FocusListen.getVoiceURI && FocusListen.getVoiceURI()) || '';
   els.voiceSelect.innerHTML = '';
   var ph = document.createElement('option');
   ph.value = '';
-  ph.textContent = voices.length ? 'Default / system voice' : 'System voice (loading…)';
+  ph.textContent = voices.length ? 'Auto (best available)' : 'System voice (loading…)';
   els.voiceSelect.appendChild(ph);
   var groups = {};
   voices.forEach(function (v) {
@@ -1626,12 +1851,21 @@ function populateVoiceSelect() {
   Object.keys(groups).sort().forEach(function (lang) {
     var og = document.createElement('optgroup');
     og.label = lang;
-    groups[lang].forEach(function (v) {
-      var opt = document.createElement('option');
-      opt.value = v.voiceURI;
-      opt.textContent = v.name + (v.localService ? '' : ' · online');
-      og.appendChild(opt);
-    });
+    groups[lang]
+      .slice()
+      .sort(function (a, b) {
+        var ta = FocusListen.voiceQualityTag ? FocusListen.voiceQualityTag(a) : '';
+        var tb = FocusListen.voiceQualityTag ? FocusListen.voiceQualityTag(b) : '';
+        var rank = { Natural: 0, Enhanced: 1, Standard: 2 };
+        return (rank[ta] || 9) - (rank[tb] || 9);
+      })
+      .forEach(function (v) {
+        var opt = document.createElement('option');
+        opt.value = v.voiceURI;
+        var tag = FocusListen.voiceQualityTag ? FocusListen.voiceQualityTag(v) : 'Standard';
+        opt.textContent = v.name + ' · ' + tag + (v.localService ? '' : ' · online');
+        og.appendChild(opt);
+      });
     els.voiceSelect.appendChild(og);
   });
   if (prev) els.voiceSelect.value = prev;
@@ -1640,16 +1874,25 @@ if (typeof FocusListen !== 'undefined') {
   FocusListen.on('voices', populateVoiceSelect);
   FocusListen.on('word', function (wi) {
     if (!state.listenMode || !state.playing) return;
-    if (wi < state.index) return;
+    if (wi < 0) return;
     if (wi > state.index) state.wordsReadSession += (wi - state.index);
     state.index = Math.min(totalWords() - 1, Math.max(0, wi));
     var token = currentToken();
-    if (token) renderWord(token.text);
+    if (token) renderWord(token.text, { reanchor: false });
     updateProgress();
     scheduleSaveProgress(false);
   });
+  FocusListen.on('pace', function (info) {
+    if (info && info.wps > 0) {
+      state.listenWps = info.wps;
+      if (typeof SentenceStrip !== 'undefined' && state.playing) {
+        SentenceStrip.startScroll({ listenWps: state.listenWps, wpm: state.wpm, words: wordListTexts(), index: state.index });
+      }
+    }
+  });
   FocusListen.on('end', function () {
     if (!state.listenMode) return;
+    if (typeof SentenceStrip !== 'undefined') SentenceStrip.stopScroll(true);
     setPlayingUI(false);
     releaseWakeLock();
     flushPlayClock();
@@ -1904,6 +2147,12 @@ void alphaLength;
 
 // Test / automation hook
 window.__FOCUS_READER__ = {
+  timingOpts: timingOpts,
+  getNaturalPauses: function () { return state.naturalPauses; },
+  setNaturalPauses: setNaturalPauses,
+  getTheme: function () { return state.theme; },
+  setTheme: applyTheme,
+
   getState: function () {
     return {
       playing: state.playing,
@@ -1912,11 +2161,14 @@ window.__FOCUS_READER__ = {
       wpm: state.wpm,
       elapsedMs: liveElapsedMs(),
       remainingMs: totalWords()
-        ? estimateRemainingMs(state.tokens, state.wordIndices, state.index, state.wpm)
+        ? estimateRemainingMs(state.tokens, state.wordIndices, state.index, state.wpm, timingOpts())
         : 0,
       totalEstMs: totalWords()
-        ? estimateRemainingMs(state.tokens, state.wordIndices, 0, state.wpm)
+        ? estimateRemainingMs(state.tokens, state.wordIndices, 0, state.wpm, timingOpts())
         : 0,
+      naturalPauses: state.naturalPauses,
+      theme: state.theme,
+      currentDocName: state.currentDocName,
       sessionActive: state.sessionActive,
       sessionRemainingMs: liveSessionRemainingMs(),
       wordsReadSession: state.wordsReadSession,
@@ -1956,8 +2208,11 @@ window.__FOCUS_READER__ = {
   setIndex: function (i) {
     if (!totalWords()) return;
     state.index = Math.min(totalWords() - 1, Math.max(0, i));
+    state.schedT0 = null;
+    state.schedCumMs = 0;
+    state.schedN = 0;
     var token = currentToken();
-    if (token) renderWord(token.text);
+    if (token) renderWord(token.text, { forceInstant: true, jump: true, reanchor: true });
     updateProgress();
     scheduleSaveProgress(true);
     updateJumpScrubUI();
@@ -1972,6 +2227,7 @@ window.__FOCUS_READER__ = {
   offSession: offSessionCountdown,
   play: play,
   pause: pause,
+  setWpm: setWpm,
   skip: skip,
   refreshRecent: refreshRecentList,
   openRecentByName: function (name) {
@@ -2093,6 +2349,8 @@ if (els.btnControlsMore && els.playerColControls) {
   });
 }
 loadSentenceStripPref();
+loadNaturalPausesPref();
+loadThemePref();
 window.addEventListener('resize', function () {
   updateSentenceStrip({ forceInstant: true });
 });

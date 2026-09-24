@@ -90,6 +90,37 @@ export function highlightOrpBracket(word) {
  * @param {string} text
  * @returns {Array<{ text: string, type: 'word' | 'para' }>}
  */
+
+/**
+ * Strip Gutenberg / markdown italics markers and skip illustration tokens.
+ */
+export function cleanRawToken(raw) {
+  if (raw == null) return '';
+  var w = String(raw);
+  if (/^\[[^\]]*\]$/.test(w)) return '';
+  w = w.replace(/--+/g, '—');
+  var prev;
+  do {
+    prev = w;
+    w = w.replace(/^[_*]+/, '').replace(/[_*]+$/, '');
+  } while (w !== prev);
+  if (w.indexOf('_') >= 0) w = w.replace(/_/g, '');
+  w = w.replace(/\*/g, '');
+  return w;
+}
+
+export function speechCleanWord(word) {
+  if (!word) return '';
+  var w = String(word);
+  w = w.replace(/[_*#~^|\\\/<>\[\]{}=+@]+/g, '');
+  w = w.replace(/[“”„«»]+/g, '"').replace(/[‘’‚]+/g, "'");
+  w = w.replace(/…+/g, '…');
+  w = w.replace(/—+/g, '—');
+  w = w.replace(/-{2,}/g, '—');
+  if (/^["'`]+$/.test(w) || /^[—–−-]+$/.test(w) || w === '…') return '';
+  return w.trim();
+}
+
 export function tokenizeAsync(text, onProgress) {
   return new Promise(function (resolve) {
     if (!text || !String(text).trim()) {
@@ -106,7 +137,8 @@ export function tokenizeAsync(text, onProgress) {
         var para = paragraphs[i];
         var words = para.trim().split(/\s+/).filter(Boolean);
         words.forEach(function (w) {
-          tokens.push({ text: w, type: 'word' });
+          var cleaned = cleanRawToken(w);
+          if (cleaned) tokens.push({ text: cleaned, type: 'word' });
         });
         if (i < paragraphs.length - 1 && words.length > 0) {
           tokens.push({ text: '', type: 'para' });
@@ -129,7 +161,8 @@ export function tokenize(text) {
   paragraphs.forEach((para, pIdx) => {
     const words = para.trim().split(/\s+/).filter(Boolean);
     words.forEach((w) => {
-      tokens.push({ text: w, type: 'word' });
+      const cleaned = cleanRawToken(w);
+      if (cleaned) tokens.push({ text: cleaned, type: 'word' });
     });
     if (pIdx < paragraphs.length - 1 && words.length > 0) {
       tokens.push({ text: '', type: 'para' });
@@ -188,8 +221,14 @@ export function pauseMultiplier(word, sentenceWordCount, isParagraphBreak) {
  * @param {number} sentenceWordCount
  * @returns {number}
  */
-export function displayDurationMs(token, wpm, sentenceWordCount) {
+export function displayDurationMs(token, wpm, sentenceWordCount, opts) {
+  opts = opts || {};
+  const natural = !!opts.naturalPauses;
   const base = baseMs(wpm);
+  if (!natural) {
+    if (token && token.type === 'para') return 0;
+    return base;
+  }
   if (token.type === 'para') {
     return base * 2.5;
   }
@@ -212,9 +251,16 @@ export function displayDurationMs(token, wpm, sentenceWordCount) {
  * @param {number} wpm
  * @returns {number}
  */
-export function estimateRemainingMs(tokens, wordIndices, fromWordIndex, wpm) {
+export function estimateRemainingMs(tokens, wordIndices, fromWordIndex, wpm, opts) {
+  opts = opts || {};
   const total = wordIndices.length;
   if (!total || fromWordIndex >= total) return 0;
+  const natural = !!opts.naturalPauses;
+  const base = baseMs(wpm);
+
+  if (!natural) {
+    return (total - fromWordIndex) * base;
+  }
 
   function endsSentence(word) {
     return /[.!?]$/.test(word || '');
@@ -242,7 +288,6 @@ export function estimateRemainingMs(tokens, wordIndices, fromWordIndex, wpm) {
 
   let ms = 0;
   let sentenceWordCount = 0;
-  const base = baseMs(wpm);
 
   for (let wi = 0; wi < total; wi++) {
     const ti = wordIndices[wi];
@@ -250,7 +295,7 @@ export function estimateRemainingMs(tokens, wordIndices, fromWordIndex, wpm) {
     let sc = sentenceWordCount;
     if (endsSentence(token.text)) sc = sentenceCountAt(wi);
 
-    let dur = displayDurationMs(token, wpm, sc);
+    let dur = displayDurationMs(token, wpm, sc, opts);
 
     if (wi < total - 1) {
       const nextTi = wordIndices[wi + 1];
@@ -268,6 +313,21 @@ export function estimateRemainingMs(tokens, wordIndices, fromWordIndex, wpm) {
     else sentenceWordCount += 1;
   }
   return ms;
+}
+
+export function findNearestWordIndex(wordTexts, hintIndex, targetText, radius) {
+  radius = radius == null ? 50 : radius;
+  if (!wordTexts || !wordTexts.length) return 0;
+  var hint = Math.max(0, Math.min(wordTexts.length - 1, hintIndex | 0));
+  if (!targetText) return hint;
+  if (wordTexts[hint] === targetText) return hint;
+  for (var d = 1; d <= radius; d++) {
+    var lo = hint - d;
+    var hi = hint + d;
+    if (lo >= 0 && wordTexts[lo] === targetText) return lo;
+    if (hi < wordTexts.length && wordTexts[hi] === targetText) return hi;
+  }
+  return hint;
 }
 
 export const ORP_TABLE = [

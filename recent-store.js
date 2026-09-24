@@ -236,6 +236,7 @@
     return get(id).then(function (doc) {
       if (!doc) return null;
       if (fields.position != null) doc.position = fields.position;
+      if (fields.positionWord != null) doc.positionWord = fields.positionWord;
       if (fields.wpm != null) doc.wpm = fields.wpm;
       if (fields.lastOpened != null) doc.lastOpened = fields.lastOpened;
       else doc.lastOpened = Date.now();

@@ -98,6 +98,54 @@ function highlightOrpBracket(word) {
  * @returns {Array<{ text: string, type: 'word' | 'para' }>}
  */
 
+
+/**
+ * Strip Gutenberg / markdown italics markers and skip illustration tokens.
+ * Applied per whitespace token before it becomes a word.
+ */
+function cleanRawToken(raw) {
+  if (raw == null) return '';
+  var w = String(raw);
+  // Bracket-only tokens like [Illustration], [Footnote 1], etc. → skip
+  if (/^\[[^\]]*\]$/.test(w)) return '';
+  // Collapse double-hyphen to em dash (keep as token content)
+  w = w.replace(/--+/g, '—');
+  // Remove surrounding underscore/asterisk emphasis markers repeatedly
+  var prev;
+  do {
+    prev = w;
+    w = w.replace(/^[_*]+/, '').replace(/[_*]+$/, '');
+  } while (w !== prev);
+  // Inner underscore used as italics (_Sense_and_Sensibility_ style segments already split);
+  // also strip leftover _ between letters when used as markers
+  if (w.indexOf('_') >= 0) {
+    // Keep underscores that look like part of identifiers rarely; Gutenberg uses _word_
+    w = w.replace(/_/g, '');
+  }
+  // Strip leftover lone asterisks
+  w = w.replace(/\*/g, '');
+  return w;
+}
+
+/**
+ * Build speech-safe text from a cleaned display word.
+ * Keeps . , ; : ? ! attached for prosody; strips other symbols voices read aloud.
+ */
+function speechCleanWord(word) {
+  if (!word) return '';
+  var w = String(word);
+  // Remove symbols voices tend to read aloud
+  w = w.replace(/[_*#~^|\\\/<>\[\]{}=+@]+/g, '');
+  // Collapse runs of quotes/dashes/ellipsis into single punctuation keepers
+  w = w.replace(/[“”„«»]+/g, '"').replace(/[‘’‚]+/g, "'");
+  w = w.replace(/…+/g, '…');
+  w = w.replace(/—+/g, '—');
+  w = w.replace(/-{2,}/g, '—');
+  // Drop stray quote-only / dash-only tokens
+  if (/^["'`]+$/.test(w) || /^[—–−-]+$/.test(w) || w === '…') return '';
+  return w.trim();
+}
+
 function tokenizeAsync(text, onProgress) {
   return new Promise(function (resolve) {
     if (!text || !String(text).trim()) {
@@ -114,7 +162,8 @@ function tokenizeAsync(text, onProgress) {
         var para = paragraphs[i];
         var words = para.trim().split(/\s+/).filter(Boolean);
         words.forEach(function (w) {
-          tokens.push({ text: w, type: 'word' });
+          var cleaned = cleanRawToken(w);
+          if (cleaned) tokens.push({ text: cleaned, type: 'word' });
         });
         if (i < paragraphs.length - 1 && words.length > 0) {
           tokens.push({ text: '', type: 'para' });
@@ -140,7 +189,8 @@ function tokenize(text) {
   paragraphs.forEach((para, pIdx) => {
     const words = para.trim().split(/\s+/).filter(Boolean);
     words.forEach((w) => {
-      tokens.push({ text: w, type: 'word' });
+      const cleaned = cleanRawToken(w);
+      if (cleaned) tokens.push({ text: cleaned, type: 'word' });
     });
     if (pIdx < paragraphs.length - 1 && words.length > 0) {
       tokens.push({ text: '', type: 'para' });
@@ -199,8 +249,15 @@ function pauseMultiplier(word, sentenceWordCount, isParagraphBreak) {
  * @param {number} sentenceWordCount
  * @returns {number}
  */
-function displayDurationMs(token, wpm, sentenceWordCount) {
+function displayDurationMs(token, wpm, sentenceWordCount, opts) {
+  opts = opts || {};
+  const natural = !!opts.naturalPauses;
   const base = baseMs(wpm);
+  if (!natural) {
+    // Constant pace: every word exactly 60000/WPM; paragraph markers add no time
+    if (token && token.type === 'para') return 0;
+    return base;
+  }
   if (token.type === 'para') {
     return base * 2.5;
   }
@@ -223,9 +280,16 @@ function displayDurationMs(token, wpm, sentenceWordCount) {
  * @param {number} wpm
  * @returns {number}
  */
-function estimateRemainingMs(tokens, wordIndices, fromWordIndex, wpm) {
+function estimateRemainingMs(tokens, wordIndices, fromWordIndex, wpm, opts) {
+  opts = opts || {};
   const total = wordIndices.length;
   if (!total || fromWordIndex >= total) return 0;
+  const natural = !!opts.naturalPauses;
+  const base = baseMs(wpm);
+
+  if (!natural) {
+    return (total - fromWordIndex) * base;
+  }
 
   function endsSentence(word) {
     return /[.!?]$/.test(word || '');
@@ -253,7 +317,6 @@ function estimateRemainingMs(tokens, wordIndices, fromWordIndex, wpm) {
 
   let ms = 0;
   let sentenceWordCount = 0;
-  const base = baseMs(wpm);
 
   for (let wi = 0; wi < total; wi++) {
     const ti = wordIndices[wi];
@@ -261,7 +324,7 @@ function estimateRemainingMs(tokens, wordIndices, fromWordIndex, wpm) {
     let sc = sentenceWordCount;
     if (endsSentence(token.text)) sc = sentenceCountAt(wi);
 
-    let dur = displayDurationMs(token, wpm, sc);
+    let dur = displayDurationMs(token, wpm, sc, opts);
 
     if (wi < total - 1) {
       const nextTi = wordIndices[wi + 1];
@@ -279,6 +342,22 @@ function estimateRemainingMs(tokens, wordIndices, fromWordIndex, wpm) {
     else sentenceWordCount += 1;
   }
   return ms;
+}
+
+/** Re-find nearest word index matching target text within ±radius of hint. */
+function findNearestWordIndex(wordTexts, hintIndex, targetText, radius) {
+  radius = radius == null ? 50 : radius;
+  if (!wordTexts || !wordTexts.length) return 0;
+  var hint = Math.max(0, Math.min(wordTexts.length - 1, hintIndex | 0));
+  if (!targetText) return hint;
+  if (wordTexts[hint] === targetText) return hint;
+  for (var d = 1; d <= radius; d++) {
+    var lo = hint - d;
+    var hi = hint + d;
+    if (lo >= 0 && wordTexts[lo] === targetText) return lo;
+    if (hi < wordTexts.length && wordTexts[hi] === targetText) return hi;
+  }
+  return hint;
 }
 
 const ORP_TABLE = [
@@ -304,6 +383,9 @@ global.ORP = {
   pauseMultiplier: pauseMultiplier,
   displayDurationMs: displayDurationMs,
   estimateRemainingMs: estimateRemainingMs,
+  cleanRawToken: cleanRawToken,
+  speechCleanWord: speechCleanWord,
+  findNearestWordIndex: findNearestWordIndex,
   ORP_TABLE: ORP_TABLE
 };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -1,29 +1,43 @@
 /**
- * Listen mode — Web Speech API, sentence utterances, ORP word sync.
+ * Listen mode — Web Speech API with generation tokens, short utterances,
+ * cancel-only stop (no pause/resume), watchdog, and quality voice ranking.
  */
 (function (global) {
   'use strict';
 
   var listenOn = false;
-  var currentUtterance = null;
   var speaking = false;
   var voices = [];
   var selectedVoiceURI = '';
+  var voiceByLang = {}; // lang → voiceURI
   var langOverride = '';
   var detectedLang = 'en';
   var sentenceQueue = [];
-  var currentSentenceMeta = null; // { text, startWordIndex, wordOffsets: [{wordIndex, charStart, charEnd}] }
+  var currentSentenceMeta = null;
+  var currentUtterance = null;
   var fallbackTimer = null;
-  var rateCalibration = 1; // maps WPM to utterance.rate
+  var watchdogTimer = null;
+  var restartTimer = null;
+  var speakDelayTimer = null;
+  var gen = 0; // increments on every start/stop; stale handlers ignore
+  var rateCalibration = 1;
   var achievedSamples = [];
+  var lastBoundaryAt = 0;
   var handlers = {
     onWord: null,
     onEnd: null,
-    onVoices: null
+    onVoices: null,
+    onPace: null // { wps } measured speech pace
   };
 
+  var MAX_UTT_CHARS = 180;
+  var DEBOUNCE_MS = 120;
+  var CANCEL_SPEAK_GAP_MS = 80;
+  var WATCHDOG_SLACK_MS = 3000;
+
   function supportsSpeech() {
-    return typeof global.speechSynthesis !== 'undefined' && typeof global.SpeechSynthesisUtterance !== 'undefined';
+    return typeof global.speechSynthesis !== 'undefined' &&
+      typeof global.SpeechSynthesisUtterance !== 'undefined';
   }
 
   function loadVoices(silent) {
@@ -38,11 +52,9 @@
     speechSynthesis.onvoiceschanged = loadVoices;
   }
 
-  /** Simple language detection */
   function detectLanguage(text) {
     var sample = (text || '').slice(0, 4000);
     if (/[\u0400-\u04FF]/.test(sample)) {
-      // rough uk vs ru
       if (/[іїєґІЇЄҐ]/.test(sample)) return 'uk';
       return 'ru';
     }
@@ -56,7 +68,7 @@
       hu: (lower.match(/\b(a|az|és|hogy|nem|van|egy|el|meg|de)\b/g) || []).length,
       fr: (lower.match(/\b(le|la|les|de|des|et|est|un|une|dans|que)\b/g) || []).length,
       es: (lower.match(/\b(el|la|de|que|y|en|los|se|del|las|un)\b/g) || []).length,
-      it: (lower.match(/\b(il|di|che|la|e|il|un|per|è|una|sono)\b/g) || []).length
+      it: (lower.match(/\b(il|di|che|la|e|un|per|è|una|sono)\b/g) || []).length
     };
     var best = 'en';
     var bestN = -1;
@@ -66,100 +78,107 @@
     return best;
   }
 
+  function voiceQualityTag(v) {
+    var n = ((v && v.name) || '') + ' ' + ((v && v.voiceURI) || '');
+    var lower = n.toLowerCase();
+    if (/natural|neural|online \(natural\)|google/.test(lower)) return 'Natural';
+    if (/premium|enhanced|super/.test(lower)) return 'Enhanced';
+    return 'Standard';
+  }
+
+  function voiceQualityRank(v) {
+    var tag = voiceQualityTag(v);
+    if (tag === 'Natural') return 3;
+    if (tag === 'Enhanced') return 2;
+    return 1;
+  }
+
   function pickVoice(lang) {
     loadVoices();
     var want = (langOverride || lang || 'en').toLowerCase();
+    var langKey = want.slice(0, 2);
+    var preferredURI = selectedVoiceURI || voiceByLang[langKey] || '';
     var list = voices.slice();
-    // Prefer localService
+
     function score(v) {
       var s = 0;
       var vl = (v.lang || '').toLowerCase();
-      if (vl.indexOf(want) === 0) s += 10;
-      else if (vl.indexOf(want.slice(0, 2)) === 0) s += 6;
-      if (v.localService) s += 5;
-      if (selectedVoiceURI && v.voiceURI === selectedVoiceURI) s += 20;
+      if (preferredURI && v.voiceURI === preferredURI) s += 100;
+      if (vl.indexOf(want) === 0) s += 20;
+      else if (vl.indexOf(langKey) === 0) s += 12;
+      s += voiceQualityRank(v) * 8;
+      var name = (v.name || '').toLowerCase();
+      if (/natural|neural|premium|enhanced|online \(natural\)/.test(name)) s += 6;
+      if (/google/.test(name)) s += 5;
+      if (v.localService) s += 2;
       return s;
     }
     list.sort(function (a, b) { return score(b) - score(a); });
     return list[0] || null;
   }
 
-  /** Split words array into sentence utterances with char→word maps */
-  function buildSentences(words) {
-    var sentences = [];
-    var buf = [];
-    var startIdx = 0;
-    function flush() {
-      if (!buf.length) return;
-      var parts = [];
-      var offsets = [];
-      var cursor = 0;
-      buf.forEach(function (item) {
-        if (parts.length) {
-          parts.push(' ');
-          cursor += 1;
-        }
-        offsets.push({
-          wordIndex: item.index,
-          charStart: cursor,
-          charEnd: cursor + item.text.length
-        });
-        parts.push(item.text);
-        cursor += item.text.length;
-      });
-      var text = parts.join('');
-      // Split long utterances at commas if > 200 chars
-      if (text.length > 220) {
-        var chunks = splitLong(text, offsets, 200);
-        chunks.forEach(function (c) { sentences.push(c); });
-      } else {
-        sentences.push({ text: text, startWordIndex: buf[0].index, wordOffsets: offsets });
-      }
-      buf = [];
+  function cleanWordForSpeech(word) {
+    if (global.ORP && typeof ORP.speechCleanWord === 'function') {
+      return ORP.speechCleanWord(word);
     }
-    words.forEach(function (w, i) {
-      if (!buf.length) startIdx = i;
-      buf.push({ text: w, index: i });
-      if (/[.!?…]["')\]]*$/.test(w) || buf.length >= 40) flush();
-    });
-    flush();
-    return sentences;
+    return String(word || '').replace(/[_*#~^|\\\/<>\[\]{}=+@]+/g, '').trim();
   }
 
-  function splitLong(text, offsets, maxLen) {
-    // Prefer splitting at comma near maxLen
-    var result = [];
-    var start = 0;
-    while (start < text.length) {
-      var end = Math.min(text.length, start + maxLen);
-      if (end < text.length) {
-        var comma = text.lastIndexOf(',', end);
-        if (comma > start + 40) end = comma + 1;
+  /** Build utterance text + charIndex→wordIndex map from cleaned words. */
+  function buildUtteranceFromRange(wordList, fromIdx, toIdxExclusive) {
+    var parts = [];
+    var offsets = [];
+    var cursor = 0;
+    for (var i = fromIdx; i < toIdxExclusive; i++) {
+      var cleaned = cleanWordForSpeech(wordList[i]);
+      if (!cleaned) continue;
+      if (parts.length) {
+        parts.push(' ');
+        cursor += 1;
       }
-      var slice = text.slice(start, end).trim();
-      var off = offsets.filter(function (o) {
-        return o.charStart >= start && o.charStart < end;
-      }).map(function (o) {
-        return {
-          wordIndex: o.wordIndex,
-          charStart: o.charStart - start,
-          charEnd: o.charEnd - start
-        };
+      offsets.push({
+        wordIndex: i,
+        charStart: cursor,
+        charEnd: cursor + cleaned.length
       });
-      if (slice && off.length) {
-        result.push({
-          text: slice,
-          startWordIndex: off[0].wordIndex,
-          wordOffsets: off
-        });
-      }
-      start = end;
+      parts.push(cleaned);
+      cursor += cleaned.length;
     }
-    return result;
+    return {
+      text: parts.join(''),
+      startWordIndex: offsets.length ? offsets[0].wordIndex : fromIdx,
+      endWordIndex: offsets.length ? offsets[offsets.length - 1].wordIndex : fromIdx,
+      wordOffsets: offsets
+    };
+  }
+
+  function buildSentenceQueue(wordList, startIndex) {
+    var queue = [];
+    var i = startIndex;
+    var n = wordList.length;
+    while (i < n) {
+      var end = i;
+      var approx = 0;
+      while (end < n) {
+        var cw = cleanWordForSpeech(wordList[end]);
+        if (!cw) { end++; continue; }
+        var add = (approx ? 1 : 0) + cw.length;
+        var isSentenceEnd = /[.!?…]["')\]]*$/.test(wordList[end]);
+        if (approx && approx + add > MAX_UTT_CHARS) break;
+        approx += add;
+        end++;
+        if (isSentenceEnd) break;
+        if (end - i >= 28) break;
+      }
+      if (end <= i) end = Math.min(n, i + 1);
+      var meta = buildUtteranceFromRange(wordList, i, end);
+      if (meta.text && meta.wordOffsets.length) queue.push(meta);
+      i = end;
+    }
+    return queue;
   }
 
   function wpmToRate(wpm) {
-    // Calibrated: rate 1 ≈ naturalWpm (default 160)
     var natural = 160 * rateCalibration;
     var rate = wpm / natural;
     return Math.max(0.5, Math.min(2.0, rate));
@@ -171,22 +190,20 @@
     achievedSamples.push(achieved);
     if (achievedSamples.length > 8) achievedSamples.shift();
     var avg = achievedSamples.reduce(function (a, b) { return a + b; }, 0) / achievedSamples.length;
-    // Adapt calibration so displayed WPM ≈ achieved at rate mapping
-    // If user set 300 but achieved 180 at computed rate, raise natural estimate
     if (global.VoiceLimit) VoiceLimit.setVoiceMax(Math.max(avg, VoiceLimit.getLimit()));
   }
 
   function charIndexToWordIndex(charIndex, meta) {
-    if (!meta || !meta.wordOffsets || !meta.wordOffsets.length) return meta ? meta.startWordIndex : 0;
+    if (!meta || !meta.wordOffsets || !meta.wordOffsets.length) {
+      return meta ? meta.startWordIndex : 0;
+    }
     var offs = meta.wordOffsets;
     for (var i = 0; i < offs.length; i++) {
       if (charIndex >= offs[i].charStart && charIndex < offs[i].charEnd) {
         return offs[i].wordIndex;
       }
     }
-    // past end → last word of utterance
     if (charIndex >= offs[offs.length - 1].charEnd) return offs[offs.length - 1].wordIndex;
-    // before first
     return offs[0].wordIndex;
   }
 
@@ -197,66 +214,77 @@
     }
   }
 
-  function stopListening(silent) {
-    speaking = false;
+  function clearWatchdog() {
+    if (watchdogTimer) {
+      clearTimeout(watchdogTimer);
+      watchdogTimer = null;
+    }
+  }
+
+  function clearSpeakDelay() {
+    if (speakDelayTimer) {
+      clearTimeout(speakDelayTimer);
+      speakDelayTimer = null;
+    }
+  }
+
+  function clearRestartDebounce() {
+    if (restartTimer) {
+      clearTimeout(restartTimer);
+      restartTimer = null;
+    }
+  }
+
+  function bumpGen() {
+    gen += 1;
+    return gen;
+  }
+
+  function hardCancel() {
     clearFallback();
+    clearWatchdog();
+    clearSpeakDelay();
+    currentUtterance = null;
+    currentSentenceMeta = null;
     if (supportsSpeech()) {
       try { speechSynthesis.cancel(); } catch (e) {}
     }
-    currentUtterance = null;
-    currentSentenceMeta = null;
+  }
+
+  function stopListening(silent) {
+    speaking = false;
+    bumpGen();
+    hardCancel();
+    clearRestartDebounce();
     if (!silent && handlers.onEnd) handlers.onEnd();
   }
 
-  function speakFromWordIndex(wordList, startIndex, wpm) {
-    if (!supportsSpeech() || !listenOn) return;
-    stopListening(true);
-    var slice = [];
-    for (var i = startIndex; i < wordList.length; i++) {
-      slice.push(wordList[i]);
-    }
-    // Remap to absolute indices
-    var absolute = slice.map(function (w, j) {
-      return w;
-    });
-    // buildSentences expects words with indices — pass pairs
-    var paired = [];
-    for (var k = startIndex; k < wordList.length; k++) {
-      paired.push({ text: wordList[k], index: k });
-    }
-    // inline build using absolute indices
-    sentenceQueue = [];
-    var buf = [];
-    function flush() {
-      if (!buf.length) return;
-      var parts = [];
-      var offsets = [];
-      var cursor = 0;
-      buf.forEach(function (item) {
-        if (parts.length) { parts.push(' '); cursor += 1; }
-        offsets.push({ wordIndex: item.index, charStart: cursor, charEnd: cursor + item.text.length });
-        parts.push(item.text);
-        cursor += item.text.length;
-      });
-      var text = parts.join('');
-      if (text.length > 220) {
-        splitLong(text, offsets, 200).forEach(function (c) { sentenceQueue.push(c); });
-      } else {
-        sentenceQueue.push({ text: text, startWordIndex: buf[0].index, wordOffsets: offsets });
-      }
-      buf = [];
-    }
-    paired.forEach(function (item) {
-      buf.push(item);
-      if (/[.!?…]["')\]]*$/.test(item.text) || buf.length >= 40) flush();
-    });
-    flush();
-    speaking = true;
-    speakNext(wpm);
+  function expectedDurationMs(meta, wpm) {
+    var words = (meta && meta.wordOffsets && meta.wordOffsets.length) || 1;
+    var rate = wpmToRate(wpm);
+    // rough: base at rate 1 ≈ 160 wpm
+    return (words / (160 * rate)) * 60000;
   }
 
-  function speakNext(wpm) {
-    if (!listenOn || !speaking) return;
+  function armWatchdog(myGen, wpm, meta, wordList) {
+    clearWatchdog();
+    var expect = expectedDurationMs(meta, wpm) + WATCHDOG_SLACK_MS;
+    watchdogTimer = setTimeout(function () {
+      if (myGen !== gen || !speaking || !listenOn) return;
+      // stale — restart from last known word
+      var restartAt = meta && meta.wordOffsets && meta.wordOffsets.length
+        ? meta.wordOffsets[0].wordIndex
+        : (handlers._lastWordIndex || 0);
+      if (handlers.onWord && meta && meta.wordOffsets && meta.wordOffsets.length) {
+        // keep display at current if we have a last word
+      }
+      var from = typeof handlers._lastWordIndex === 'number' ? handlers._lastWordIndex : restartAt;
+      speakFromWordIndexImmediate(wordList, from, wpm);
+    }, Math.max(4000, expect));
+  }
+
+  function speakNext(myGen, wpm, wordList) {
+    if (myGen !== gen || !listenOn || !speaking) return;
     if (!sentenceQueue.length) {
       speaking = false;
       if (handlers.onEnd) handlers.onEnd();
@@ -271,42 +299,74 @@
     utt.lang = (voice && voice.lang) || detectedLang;
     currentUtterance = utt;
     var t0 = Date.now();
-    var lastWord = meta.startWordIndex;
     var gotBoundary = false;
+    var boundaryCount = 0;
+    lastBoundaryAt = t0;
 
     utt.onboundary = function (ev) {
+      if (myGen !== gen) return;
       if (ev.name && ev.name !== 'word') return;
       gotBoundary = true;
+      boundaryCount++;
+      lastBoundaryAt = Date.now();
       var wi = charIndexToWordIndex(ev.charIndex, meta);
-      lastWord = wi;
+      handlers._lastWordIndex = wi;
       if (handlers.onWord) handlers.onWord(wi);
+      if (handlers.onPace && boundaryCount >= 2) {
+        var elapsed = (Date.now() - t0) / 1000;
+        if (elapsed > 0.2) handlers.onPace({ wps: boundaryCount / elapsed });
+      }
     };
 
     utt.onend = function () {
+      if (myGen !== gen) return;
       clearFallback();
+      clearWatchdog();
       var elapsed = Date.now() - t0;
       noteAchievement(meta.wordOffsets.length, elapsed);
-      if (handlers.onWord) {
-        var last = meta.wordOffsets[meta.wordOffsets.length - 1];
-        if (last) handlers.onWord(last.wordIndex);
+      var last = meta.wordOffsets[meta.wordOffsets.length - 1];
+      if (last) {
+        handlers._lastWordIndex = last.wordIndex;
+        if (handlers.onWord) handlers.onWord(last.wordIndex);
+        // Advance display to next word after utterance (re-sync)
+        var next = last.wordIndex + 1;
+        if (handlers.onWord && next < wordList.length) {
+          // onend already set last; speakNext continues. Caller advances via boundaries.
+        }
       }
-      speakNext(wpm);
+      speakNext(myGen, wpm, wordList);
     };
+
     utt.onerror = function () {
+      if (myGen !== gen) return;
       clearFallback();
-      speakNext(wpm);
+      clearWatchdog();
+      // Skip to next utterance rather than hang
+      speakNext(myGen, wpm, wordList);
     };
 
-    speechSynthesis.speak(utt);
+    // After cancel, wait a tick before speak (Chrome hang workaround)
+    clearSpeakDelay();
+    speakDelayTimer = setTimeout(function () {
+      speakDelayTimer = null;
+      if (myGen !== gen || !speaking || !listenOn) return;
+      try {
+        speechSynthesis.speak(utt);
+      } catch (e) {
+        speakNext(myGen, wpm, wordList);
+        return;
+      }
+      armWatchdog(myGen, wpm, meta, wordList);
 
-    // Fallback timer if no boundary events within 400ms
-    setTimeout(function () {
-      if (!gotBoundary && speaking && currentUtterance === utt) {
+      // Fallback timer if no boundary events
+      setTimeout(function () {
+        if (myGen !== gen || gotBoundary || !speaking || currentUtterance !== utt) return;
         var i = 0;
         var words = meta.wordOffsets;
-        var perWord = Math.max(80, (60000 / wpm));
+        var perWord = Math.max(80, 60000 / Math.max(1, wpm));
+        clearFallback();
         fallbackTimer = setInterval(function () {
-          if (!speaking || currentUtterance !== utt) {
+          if (myGen !== gen || !speaking || currentUtterance !== utt) {
             clearFallback();
             return;
           }
@@ -314,11 +374,38 @@
             clearFallback();
             return;
           }
+          handlers._lastWordIndex = words[i].wordIndex;
           if (handlers.onWord) handlers.onWord(words[i].wordIndex);
           i++;
         }, perWord);
-      }
-    }, 400);
+      }, 400);
+    }, CANCEL_SPEAK_GAP_MS);
+  }
+
+  function speakFromWordIndexImmediate(wordList, startIndex, wpm) {
+    if (!supportsSpeech() || !listenOn) return;
+    var myGen = bumpGen();
+    hardCancel();
+    sentenceQueue = buildSentenceQueue(wordList || [], Math.max(0, startIndex | 0));
+    speaking = true;
+    handlers._lastWordIndex = startIndex | 0;
+    // small gap after cancel then speak
+    clearSpeakDelay();
+    speakDelayTimer = setTimeout(function () {
+      speakDelayTimer = null;
+      if (myGen !== gen) return;
+      speakNext(myGen, wpm, wordList);
+    }, CANCEL_SPEAK_GAP_MS);
+  }
+
+  function speakFromWordIndex(wordList, startIndex, wpm) {
+    if (!supportsSpeech() || !listenOn) return;
+    clearRestartDebounce();
+    // Debounce rapid restarts (WPM/voice/jump spam)
+    restartTimer = setTimeout(function () {
+      restartTimer = null;
+      speakFromWordIndexImmediate(wordList, startIndex, wpm);
+    }, DEBOUNCE_MS);
   }
 
   function setListen(on) {
@@ -331,11 +418,47 @@
   function isListenOn() { return listenOn; }
   function isSpeaking() { return speaking; }
 
-  function setVoiceURI(uri) { selectedVoiceURI = uri || ''; }
-  function setLangOverride(lang) { langOverride = lang || ''; }
+  function setVoiceURI(uri) {
+    selectedVoiceURI = uri || '';
+    var langKey = (langOverride || detectedLang || 'en').slice(0, 2);
+    if (selectedVoiceURI) {
+      voiceByLang[langKey] = selectedVoiceURI;
+      try {
+        localStorage.setItem('focusReader.voiceByLang', JSON.stringify(voiceByLang));
+      } catch (e) {}
+    }
+  }
+
+  function loadVoicePrefs() {
+    try {
+      voiceByLang = JSON.parse(localStorage.getItem('focusReader.voiceByLang') || '{}') || {};
+    } catch (e) { voiceByLang = {}; }
+  }
+  loadVoicePrefs();
+
+  function setLangOverride(lang) {
+    langOverride = lang || '';
+    var langKey = (langOverride || detectedLang || 'en').slice(0, 2);
+    if (!selectedVoiceURI && voiceByLang[langKey]) {
+      selectedVoiceURI = voiceByLang[langKey];
+    }
+  }
+
   function setDetectedFromText(text) {
     detectedLang = detectLanguage(text || '');
+    var langKey = (langOverride || detectedLang || 'en').slice(0, 2);
+    if (!selectedVoiceURI && voiceByLang[langKey]) {
+      selectedVoiceURI = voiceByLang[langKey];
+    }
     return detectedLang;
+  }
+
+  // Expose buildSentences for tests (absolute-index form)
+  function buildSentences(words) {
+    var list = (words || []).map(function (w) {
+      return typeof w === 'string' ? w : (w && w.text) || '';
+    });
+    return buildSentenceQueue(list, 0);
   }
 
   global.FocusListen = {
@@ -344,25 +467,32 @@
     isListenOn: isListenOn,
     isSpeaking: isSpeaking,
     speakFromWordIndex: speakFromWordIndex,
+    speakFromWordIndexImmediate: speakFromWordIndexImmediate,
     stop: stopListening,
     loadVoices: loadVoices,
     getVoices: function () { return voices.slice(); },
     setVoiceURI: setVoiceURI,
+    getVoiceURI: function () { return selectedVoiceURI; },
     setLangOverride: setLangOverride,
     setDetectedFromText: setDetectedFromText,
     getDetectedLang: function () { return detectedLang; },
     detectLanguage: detectLanguage,
     charIndexToWordIndex: charIndexToWordIndex,
     buildSentences: buildSentences,
+    buildUtteranceFromRange: buildUtteranceFromRange,
+    cleanWordForSpeech: cleanWordForSpeech,
+    voiceQualityTag: voiceQualityTag,
+    pickVoice: pickVoice,
     wpmToRate: wpmToRate,
+    getGen: function () { return gen; },
     on: function (evt, fn) {
       if (evt === 'word') handlers.onWord = fn;
       if (evt === 'end') handlers.onEnd = fn;
       if (evt === 'voices') handlers.onVoices = fn;
+      if (evt === 'pace') handlers.onPace = fn;
     }
   };
 
-  // Back-compat stub used by applyText
   global.stopListening = function (silent) {
     stopListening(!!silent);
   };
