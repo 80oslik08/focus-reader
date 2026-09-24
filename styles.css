@@ -317,6 +317,7 @@ body {
   padding: 0 4px;
 }
 
+.btn[hidden] { display: none !important; }
 .btn {
   appearance: none;
   border: 1px solid var(--border-strong);

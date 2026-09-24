@@ -296,18 +296,21 @@
         }
         actions.appendChild(btnUse);
 
-        var btnProg = document.createElement('button');
-        btnProg.type = 'button';
-        btnProg.className = 'btn btn-ghost btn-touch voice-btn-progress';
-        btnProg.hidden = true;
-        actions.appendChild(btnProg);
-
         actions.appendChild(buildOverflow([
           {
             label: 'Re-download',
             onClick: function () {
-              btnProg.hidden = false;
-              downloadVoice(v.id, btnProg, row).then(function () { btnProg.hidden = true; });
+              var btnProg = document.createElement('button');
+              btnProg.type = 'button';
+              btnProg.className = 'btn btn-ghost btn-touch voice-btn-progress';
+              btnProg.textContent = '0%';
+              btnProg.disabled = true;
+              var ov = actions.querySelector('.voice-overflow');
+              if (ov) actions.insertBefore(btnProg, ov);
+              else actions.appendChild(btnProg);
+              Promise.resolve(downloadVoice(v.id, btnProg, row)).finally(function () {
+                if (btnProg.parentNode) btnProg.remove();
+              });
             }
           },
           {

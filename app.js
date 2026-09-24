@@ -1884,20 +1884,34 @@ if (els.themeSeg) {
 
 
 var _voiceLoadStarted = 0;
+var _voiceLoadTimer = null;
 function populateVoiceSelect() {
   if (!els.voiceSelect || typeof FocusListen === 'undefined') return;
   var voices = FocusListen.loadVoices(true);
   if (!voices.length) voices = FocusListen.getVoices();
-  if (!voices.length && !_voiceLoadStarted) {
+  var synthOk = typeof speechSynthesis !== 'undefined' &&
+    typeof SpeechSynthesisUtterance !== 'undefined';
+  // No speechSynthesis → settle immediately (no perpetual "loading…")
+  if (!voices.length && !synthOk) {
+    _voiceLoadStarted = _voiceLoadStarted || (Date.now() - 3000);
+  } else if (!voices.length && !_voiceLoadStarted) {
     _voiceLoadStarted = Date.now();
     setTimeout(function () { populateVoiceSelect(); }, 500);
-    setTimeout(function () { populateVoiceSelect(); }, 2000);
+    if (_voiceLoadTimer) clearTimeout(_voiceLoadTimer);
+    // 2100ms so Date.now() - start is reliably >= 2000 when the timer fires
+    _voiceLoadTimer = setTimeout(function () { populateVoiceSelect(); }, 2100);
+  } else if (voices.length) {
+    _voiceLoadStarted = 0;
+    if (_voiceLoadTimer) { clearTimeout(_voiceLoadTimer); _voiceLoadTimer = null; }
   }
   var prev = els.voiceSelect.value || (FocusListen.getVoiceURI && FocusListen.getVoiceURI()) || '';
   els.voiceSelect.innerHTML = '';
   var ph = document.createElement('option');
   ph.value = '';
-  var loadingTooLong = !voices.length && _voiceLoadStarted && (Date.now() - _voiceLoadStarted > 2000);
+  var loadingTooLong = !voices.length && (
+    !synthOk ||
+    (_voiceLoadStarted && (Date.now() - _voiceLoadStarted >= 2000))
+  );
   ph.textContent = voices.length
     ? 'Auto (best available)'
     : (loadingTooLong ? 'System voice' : 'System voice (loading…)');
