@@ -1573,7 +1573,7 @@ code {
   width: 100%;
 }
 .player-col-center .stage-wrap {
-  flex: 1 1 auto;
+  flex: 0 0 auto; /* hug word + strip + progress — no tall empty card */
   display: flex;
   flex-direction: column;
   width: 100%;

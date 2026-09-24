@@ -255,6 +255,7 @@ async function loadBook(page) {
       btnThemeGone: !document.getElementById('btnTheme'),
       wordFontPx: parseFloat(cs(document.getElementById('wordRow')).fontSize),
       stageH: document.getElementById('stage').getBoundingClientRect().height,
+      wrapH: document.getElementById('stageWrap').getBoundingClientRect().height,
     };
   });
   log('contrast raw: ' + JSON.stringify(contrast));
@@ -280,6 +281,7 @@ async function loadBook(page) {
   assert(contrast.themeSeg && contrast.themeSelectGone && contrast.btnThemeGone, 'single segmented theme control');
   assert(contrast.wordFontPx >= 56, `desktop word size ≥56px (got ${contrast.wordFontPx})`);
   assert(contrast.stageH <= 340, `stage height reduced (got ${contrast.stageH})`);
+  assert(contrast.wrapH <= 480, `center card hug content (wrapH ${contrast.wrapH})`);
 
 
   // Themes
