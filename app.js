@@ -40,6 +40,17 @@ var els = {
   btnWpmDown: document.getElementById('btnWpmDown'),
   btnWpmUp: document.getElementById('btnWpmUp'),
   btnListen: document.getElementById('btnListen'),
+  jumpPanel: document.getElementById('jumpPanel'),
+  jumpSlider: document.getElementById('jumpSlider'),
+  jumpReadout: document.getElementById('jumpReadout'),
+  jumpTimeLabel: document.getElementById('jumpTimeLabel'),
+  jumpWordsLabel: document.getElementById('jumpWordsLabel'),
+  jumpTargetLabel: document.getElementById('jumpTargetLabel'),
+  jumpClampLabel: document.getElementById('jumpClampLabel'),
+  jumpPreview: document.getElementById('jumpPreview'),
+  btnJumpApply: document.getElementById('btnJumpApply'),
+  btnJumpCancel: document.getElementById('btnJumpCancel'),
+  btnJumpUndo: document.getElementById('btnJumpUndo'),
   voiceLimitTrack: document.getElementById('voiceLimitTrack'),
   voiceLimitZone: document.getElementById('voiceLimitZone'),
   voiceLimitTick: document.getElementById('voiceLimitTick'),
@@ -91,6 +102,8 @@ var state = {
   listenMode: false,
   bookLang: null,
   langOverride: '',
+  jumpUndoStack: [],
+  jumpPendingSec: 0,
 
   timer: null,
   sentenceWordCount: 0,
@@ -179,6 +192,8 @@ function setWpm(v, syncInputs, skipSave) {
   }
   updateTimerDisplays();
   updateVoiceLimitUI();
+  refreshJumpButtonTitles();
+  if (typeof FocusJump !== 'undefined' && state.jumpPendingSec) updateJumpScrubUI();
   if (typeof VoiceLimit !== 'undefined' && state.listenMode && state.playing) {
     VoiceLimit.tick(state.wpm, state.langOverride || state.bookLang, true);
   }
@@ -587,6 +602,178 @@ function skip(delta) {
   }
 }
 
+
+/* ——— Time-based jumps (FocusJump) ——— */
+function wordListTexts() {
+  return state.wordIndices.map(function (ti) { return state.tokens[ti].text; });
+}
+
+function refreshJumpButtonTitles() {
+  if (typeof FocusJump === 'undefined') return;
+  document.querySelectorAll('[data-jump-sec]').forEach(function (btn) {
+    var sec = Number(btn.getAttribute('data-jump-sec'));
+    btn.title = FocusJump.tooltipFor(sec, state.wpm);
+  });
+}
+
+function updateJumpScrubUI() {
+  if (!els.jumpSlider || typeof FocusJump === 'undefined') return;
+  var v = Number(els.jumpSlider.value) || 0;
+  var sec = FocusJump.sliderToSeconds(v);
+  state.jumpPendingSec = sec;
+  var plan = FocusJump.planJump(state.index, totalWords(), sec, state.wpm);
+  var active = sec !== 0 && totalWords() > 0;
+  if (els.jumpReadout) els.jumpReadout.hidden = !active && sec === 0;
+  if (sec === 0) {
+    if (els.jumpReadout) els.jumpReadout.hidden = true;
+  } else if (els.jumpReadout) {
+    els.jumpReadout.hidden = false;
+  }
+  if (els.jumpTimeLabel) els.jumpTimeLabel.textContent = FocusJump.formatSignedTime(sec);
+  if (els.jumpWordsLabel) {
+    els.jumpWordsLabel.textContent = FocusJump.formatSignedWords(plan.requestedDelta != null ? plan.requestedDelta : plan.deltaWords);
+  }
+  var total = totalWords();
+  if (els.jumpTargetLabel) {
+    if (total) {
+      var pct = Math.round(((plan.targetIndex + 1) / total) * 100);
+      els.jumpTargetLabel.textContent = '→ word ' + (plan.targetIndex + 1) + '/' + total + ' (' + pct + '%)';
+    } else {
+      els.jumpTargetLabel.textContent = '';
+    }
+  }
+  if (els.jumpClampLabel) {
+    if (plan.clamped && plan.clampReason === 'start') {
+      els.jumpClampLabel.hidden = false;
+      els.jumpClampLabel.textContent = 'start of book';
+    } else if (plan.clamped && plan.clampReason === 'end') {
+      els.jumpClampLabel.hidden = false;
+      els.jumpClampLabel.textContent = 'end of book';
+    } else {
+      els.jumpClampLabel.hidden = true;
+      els.jumpClampLabel.textContent = '';
+    }
+  }
+  if (els.jumpPreview && total) {
+    var snip = FocusJump.previewSnippet(wordListTexts(), plan.targetIndex, 5);
+    els.jumpPreview.innerHTML = snip.html;
+  } else if (els.jumpPreview) {
+    els.jumpPreview.innerHTML = '';
+  }
+  if (els.jumpSlider) {
+    els.jumpSlider.setAttribute('aria-valuetext', FocusJump.formatSignedTime(sec));
+  }
+  if (els.btnJumpApply) els.btnJumpApply.disabled = !active;
+  if (els.btnJumpCancel) els.btnJumpCancel.disabled = sec === 0;
+  if (els.btnJumpUndo) els.btnJumpUndo.disabled = !state.jumpUndoStack.length;
+}
+
+function resetJumpSlider() {
+  if (els.jumpSlider) els.jumpSlider.value = '0';
+  state.jumpPendingSec = 0;
+  updateJumpScrubUI();
+}
+
+/**
+ * Jump by signed seconds at current WPM.
+ * opts.pushUndo (default true), opts.fromUndo (default false)
+ */
+function jumpBySeconds(seconds, opts) {
+  opts = opts || {};
+  if (!totalWords() || typeof FocusJump === 'undefined') return null;
+  var plan = FocusJump.planJump(state.index, totalWords(), seconds, state.wpm);
+  if (plan.targetIndex === state.index && !plan.clamped && (plan.requestedDelta === 0)) {
+    return plan;
+  }
+  var wasPlaying = state.playing;
+  stopWordTimer();
+  if (typeof FocusListen !== 'undefined') FocusListen.stop(true);
+  flushPlayClock(); // pause play clock accrual but keep elapsedMs
+
+  var fromIdx = state.index;
+  if (opts.pushUndo !== false && !opts.fromUndo && plan.targetIndex !== fromIdx) {
+    state.jumpUndoStack.push(fromIdx);
+    if (state.jumpUndoStack.length > 10) state.jumpUndoStack.shift();
+  }
+
+  state.index = plan.targetIndex;
+  state.sentenceWordCount = 0;
+  // Don't change elapsed time on jumps; wordsReadSession only grows forward
+  if (state.index > fromIdx) state.wordsReadSession += (state.index - fromIdx);
+
+  var token = currentToken();
+  if (token) renderWord(token.text);
+  updateProgress();
+  // Immediate persist (respects positionRestored gating)
+  scheduleSaveProgress(true);
+  if (typeof RecentStore !== 'undefined' && state.currentDocId && state.positionRestored) {
+    RecentStore.updateProgress(state.currentDocId, {
+      position: state.index,
+      wpm: state.wpm,
+      lastOpened: Date.now()
+    }).then(function () { refreshRecentList(); }).catch(function () {});
+  }
+
+  if (wasPlaying) {
+    startPlayClocks();
+    setPlayingUI(true);
+    if (state.listenMode && typeof FocusListen !== 'undefined' && FocusListen.supportsSpeech()) {
+      FocusListen.speakFromWordIndex(wordListTexts(), state.index, state.wpm);
+    } else {
+      scheduleNext();
+    }
+  } else {
+    setPlayingUI(false);
+  }
+
+  if (plan.clamped && plan.clampReason === 'start') showToast('Start of book');
+  else if (plan.clamped && plan.clampReason === 'end') showToast('End of book');
+
+  updateJumpScrubUI();
+  return plan;
+}
+
+function applyJumpScrub() {
+  if (!state.jumpPendingSec) return;
+  jumpBySeconds(state.jumpPendingSec);
+  resetJumpSlider();
+}
+
+function undoJump() {
+  if (!state.jumpUndoStack.length) return;
+  var prev = state.jumpUndoStack.pop();
+  var deltaSec = 0;
+  if (typeof FocusJump !== 'undefined') {
+    // Jump to absolute index via seconds≈0 path: set directly
+    var wasPlaying = state.playing;
+    stopWordTimer();
+    if (typeof FocusListen !== 'undefined') FocusListen.stop(true);
+    flushPlayClock();
+    state.index = Math.min(totalWords() - 1, Math.max(0, prev));
+    state.sentenceWordCount = 0;
+    var token = currentToken();
+    if (token) renderWord(token.text);
+    updateProgress();
+    scheduleSaveProgress(true);
+    if (typeof RecentStore !== 'undefined' && state.currentDocId && state.positionRestored) {
+      RecentStore.updateProgress(state.currentDocId, {
+        position: state.index,
+        wpm: state.wpm,
+        lastOpened: Date.now()
+      }).then(function () { refreshRecentList(); }).catch(function () {});
+    }
+    if (wasPlaying) {
+      startPlayClocks();
+      setPlayingUI(true);
+      if (state.listenMode && typeof FocusListen !== 'undefined') {
+        FocusListen.speakFromWordIndex(wordListTexts(), state.index, state.wpm);
+      } else scheduleNext();
+    } else setPlayingUI(false);
+  }
+  updateJumpScrubUI();
+  showToast('Jump undone');
+}
+
 function pastedNameFromText(text) {
   var words = (text || '').trim().split(/\s+/).filter(Boolean).slice(0, 5);
   var head = words.join(' ') || 'Untitled';
@@ -680,6 +867,8 @@ function applyText(text, opts) {
       }
       if (opts.resetElapsed !== false) resetElapsedTimers();
       updateVoiceLimitUI();
+      if (typeof updateJumpScrubUI === 'function') updateJumpScrubUI();
+      refreshJumpButtonTitles();
 
       if (opts.driveFileId) state.currentDriveFileId = opts.driveFileId;
 
@@ -1250,7 +1439,35 @@ function bindHoldRepeat(btn, fn) {
   btn.addEventListener('pointercancel', stop);
 }
 bindHoldRepeat(els.btnWpmDown, function () { setWpm(state.wpm - 5); });
+
 bindHoldRepeat(els.btnWpmUp, function () { setWpm(state.wpm + 5); });
+
+/* Jump panel wiring */
+(function wireJumpPanel() {
+  refreshJumpButtonTitles();
+  document.querySelectorAll('[data-jump-sec]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var sec = Number(btn.getAttribute('data-jump-sec'));
+      jumpBySeconds(sec);
+      resetJumpSlider();
+    });
+  });
+  if (els.jumpSlider) {
+    els.jumpSlider.addEventListener('input', updateJumpScrubUI);
+    els.jumpSlider.addEventListener('change', updateJumpScrubUI);
+    els.jumpSlider.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        applyJumpScrub();
+      }
+    });
+  }
+  if (els.btnJumpApply) els.btnJumpApply.addEventListener('click', applyJumpScrub);
+  if (els.btnJumpCancel) els.btnJumpCancel.addEventListener('click', resetJumpSlider);
+  if (els.btnJumpUndo) els.btnJumpUndo.addEventListener('click', undoJump);
+  updateJumpScrubUI();
+})();
+
 
 function setListenMode(on) {
   state.listenMode = !!on;
@@ -1509,6 +1726,14 @@ document.addEventListener('keydown', function (e) {
   } else if (e.code === 'ArrowDown') {
     e.preventDefault();
     setWpm(state.wpm - (e.shiftKey ? 25 : 5));
+  } else if (e.key === '[' || e.code === 'BracketLeft') {
+    e.preventDefault();
+    jumpBySeconds(e.shiftKey ? -60 : -10);
+    resetJumpSlider();
+  } else if (e.key === ']' || e.code === 'BracketRight') {
+    e.preventDefault();
+    jumpBySeconds(e.shiftKey ? 60 : 10);
+    resetJumpSlider();
   }
 });
 
@@ -1595,6 +1820,24 @@ window.__FOCUS_READER__ = {
     };
   },
   setListenMode: function (on) { setListenMode(!!on); },
+  jumpBySeconds: jumpBySeconds,
+  applyJumpScrub: applyJumpScrub,
+  undoJump: undoJump,
+  resetJumpSlider: resetJumpSlider,
+  getJumpPending: function () {
+    return {
+      seconds: state.jumpPendingSec,
+      plan: typeof FocusJump !== 'undefined'
+        ? FocusJump.planJump(state.index, totalWords(), state.jumpPendingSec, state.wpm)
+        : null
+    };
+  },
+  setJumpSlider: function (v) {
+    if (els.jumpSlider) {
+      els.jumpSlider.value = String(v);
+      updateJumpScrubUI();
+    }
+  },
   setIndex: function (i) {
     if (!totalWords()) return;
     state.index = Math.min(totalWords() - 1, Math.max(0, i));
@@ -1602,6 +1845,7 @@ window.__FOCUS_READER__ = {
     if (token) renderWord(token.text);
     updateProgress();
     scheduleSaveProgress(true);
+    updateJumpScrubUI();
   },
   flush: flushCurrentBook,
   applyText: applyText,

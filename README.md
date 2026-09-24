@@ -29,6 +29,13 @@ Opening `index.html` from disk still works (no service worker on `file://`). PDF
 
 
 
+
+## Time jump
+- Quick buttons: −10s / −30s / −2m / −5m and +10s / +30s / +2m / +5m. Words moved = `round(seconds × WPM / 60)` at the **current** WPM (e.g. 300 WPM × 10s → 50 words).
+- Scrub slider: log-mapped bidirectional control (−10h … +10h) snapped to nice steps; live readout shows signed time, word delta, target %, and a preview snippet. **Jump** applies, **Reset** clears, **Undo jump** restores prior positions (stack of ~10).
+- Keyboard: `[` / `]` = ±10s; `Shift`+`[` / `Shift`+`]` = ±1m.
+- Works while playing or paused; Listen mode restarts speech from the exact target word. Position is flushed immediately (resume/sync safe).
+
 ## Reading controls
 - **−5 WPM / +5 WPM** buttons (press-and-hold repeats). Slider + number input still work.
 - Keyboard: `↑`/`↓` = ±5 WPM; `Shift`+`↑`/`↓` = ±25 WPM; `←`/`→` = jump ±5 words (also swipe left/right on the stage).

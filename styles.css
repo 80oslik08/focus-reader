@@ -1376,3 +1376,136 @@ code {
   min-width: 4.5rem;
   font-variant-numeric: tabular-nums;
 }
+
+/* ——— Time jump panel ——— */
+.jump-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 8px 4px 4px;
+  width: 100%;
+}
+.jump-group-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted, #94a3b8);
+  align-self: center;
+  margin-right: 4px;
+}
+.jump-quick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  flex: 1 1 auto;
+}
+.jump-quick-back,
+.jump-quick-fwd {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.btn-jump {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 8px 10px;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+}
+.btn-jump-fwd {
+  opacity: 0.85;
+  border-style: dashed;
+}
+.jump-scrub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  flex: 1 1 280px;
+  min-width: 240px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.jump-scrub-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted, #94a3b8);
+}
+#jumpSlider {
+  flex: 1 1 160px;
+  min-width: 140px;
+  accent-color: var(--accent, #4a7de0);
+}
+.jump-readout {
+  width: 100%;
+  font-size: 0.85rem;
+}
+.jump-readout-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.jump-clamp {
+  color: #f59e0b;
+  font-weight: 700;
+}
+.jump-preview {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  background: rgba(0,0,0,0.25);
+  border-radius: 6px;
+  line-height: 1.45;
+  font-size: 0.9rem;
+  color: var(--text-muted, #cbd5e1);
+}
+.jump-preview-hl {
+  background: rgba(239, 68, 68, 0.35);
+  color: #fff;
+  padding: 0 3px;
+  border-radius: 3px;
+  font-weight: 700;
+}
+.jump-scrub-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+}
+.jump-scrub-actions .btn {
+  min-height: 44px;
+}
+
+@media (min-width: 900px) {
+  .jump-panel {
+    flex-direction: row;
+    align-items: center;
+  }
+  .jump-quick {
+    flex: 0 1 auto;
+    max-width: 52%;
+  }
+}
+
+@media (max-width: 640px) {
+  .jump-panel {
+    order: -1;
+  }
+  .jump-quick {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .btn-jump {
+    flex: 1 1 calc(25% - 6px);
+    justify-content: center;
+  }
+}

@@ -72,6 +72,42 @@
         </div>
       </section>
 
+      <div class="jump-panel" id="jumpPanel" aria-label="Time jump">
+        <div class="jump-quick" id="jumpQuick">
+          <span class="jump-group-label">Jump</span>
+          <div class="jump-quick-back" role="group" aria-label="Jump back">
+            <button type="button" class="btn btn-ghost btn-touch btn-jump" data-jump-sec="-10" title="−10s">−10s</button>
+            <button type="button" class="btn btn-ghost btn-touch btn-jump" data-jump-sec="-30" title="−30s">−30s</button>
+            <button type="button" class="btn btn-ghost btn-touch btn-jump" data-jump-sec="-120" title="−2m">−2m</button>
+            <button type="button" class="btn btn-ghost btn-touch btn-jump" data-jump-sec="-300" title="−5m">−5m</button>
+          </div>
+          <div class="jump-quick-fwd" role="group" aria-label="Jump forward">
+            <button type="button" class="btn btn-ghost btn-touch btn-jump btn-jump-fwd" data-jump-sec="10" title="+10s">+10s</button>
+            <button type="button" class="btn btn-ghost btn-touch btn-jump btn-jump-fwd" data-jump-sec="30" title="+30s">+30s</button>
+            <button type="button" class="btn btn-ghost btn-touch btn-jump btn-jump-fwd" data-jump-sec="120" title="+2m">+2m</button>
+            <button type="button" class="btn btn-ghost btn-touch btn-jump btn-jump-fwd" data-jump-sec="300" title="+5m">+5m</button>
+          </div>
+        </div>
+        <div class="jump-scrub" id="jumpScrub">
+          <label class="jump-scrub-label" for="jumpSlider">Scrub</label>
+          <input type="range" id="jumpSlider" min="-1" max="1" step="0.001" value="0" aria-valuetext="0s" />
+          <div class="jump-readout" id="jumpReadout" hidden>
+            <div class="jump-readout-main">
+              <span id="jumpTimeLabel">0s</span>
+              <span id="jumpWordsLabel">0 words</span>
+              <span id="jumpTargetLabel"></span>
+              <span id="jumpClampLabel" class="jump-clamp" hidden></span>
+            </div>
+            <p class="jump-preview" id="jumpPreview" aria-live="polite"></p>
+          </div>
+          <div class="jump-scrub-actions">
+            <button type="button" class="btn btn-primary btn-touch" id="btnJumpApply" disabled>Jump</button>
+            <button type="button" class="btn btn-ghost btn-touch" id="btnJumpCancel" disabled>Reset</button>
+            <button type="button" class="btn btn-ghost btn-touch" id="btnJumpUndo" disabled title="Undo last jump">Undo jump</button>
+          </div>
+        </div>
+      </div>
+
       <div class="controls controls-sticky" id="controls">
         <button type="button" class="btn btn-ghost btn-touch" id="btnWpmDown" title="−5 WPM (↓)" aria-label="Decrease speed 5 WPM">−5 WPM</button>
         <button type="button" class="btn btn-primary btn-play btn-touch" id="btnPlay" title="Play / Pause (Space)">
@@ -273,9 +309,10 @@
             </p>
             <div class="kbd-row" aria-label="Keyboard and touch shortcuts">
               <span class="kbd"><kbd>Space</kbd> / tap play</span>
-              <span class="kbd"><kbd>←</kbd><kbd>→</kbd> / swipe ±5</span>
-              <span class="kbd"><kbd>↑</kbd><kbd>↓</kbd> / swipe WPM</span>
-              <span class="kbd"><kbd>F</kbd> focus mode</span>
+              <span class="kbd"><kbd>←</kbd><kbd>→</kbd> jump ±5 words</span>
+              <span class="kbd"><kbd>↑</kbd><kbd>↓</kbd> ±5 WPM · <kbd>Shift</kbd>+arrows ±25</span>
+              <span class="kbd"><kbd>[</kbd><kbd>]</kbd> ±10s · <kbd>Shift</kbd>+brackets ±1m</span>
+              <span class="kbd"><kbd>F</kbd> focus</span>
             </div>
           </div>
         </details>
@@ -298,6 +335,7 @@
   <script src="library.js"></script>
   <script src="voice-limit.js"></script>
   <script src="listen.js"></script>
+  <script src="jump.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
