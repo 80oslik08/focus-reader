@@ -15,6 +15,7 @@ var ORP_TABLE = ORP.ORP_TABLE;
 
 var LS_SESSION_MIN = 'focusReader.sessionMinutes';
 var LS_BEEP = 'focusReader.beepEnabled';
+var LS_SENTENCE_STRIP = 'focusReader.sentenceStrip';
 var SAVE_THROTTLE_MS = 2000;
 
 var SAMPLE_TEXT = 'Speed reading with RSVP presents one word at a time, aligned to an Optimal Recognition Point. Your eyes stay fixed while meaning flows forward. Short words flash briefly; longer words linger a little longer. After commas you pause; after full stops you rest longer still.\n\nPractice at a comfortable pace first. Three hundred words per minute is a solid default. Raise the speed when the text feels easy. Focus on comprehension, not only raw throughput.';
@@ -40,6 +41,16 @@ var els = {
   btnWpmDown: document.getElementById('btnWpmDown'),
   btnWpmUp: document.getElementById('btnWpmUp'),
   btnListen: document.getElementById('btnListen'),
+  btnFocusControl: document.getElementById('btnFocusControl'),
+  btnSentenceStrip: document.getElementById('btnSentenceStrip'),
+  btnJumpMore: document.getElementById('btnJumpMore'),
+  btnControlsMore: document.getElementById('btnControlsMore'),
+  sentenceStripWrap: document.getElementById('sentenceStripWrap'),
+  sentenceStrip: document.getElementById('sentenceStrip'),
+  sentenceStripTrack: document.getElementById('sentenceStripTrack'),
+  playerColNav: document.getElementById('playerColNav'),
+  playerColControls: document.getElementById('playerColControls'),
+  jumpCompactLabel: document.getElementById('jumpCompactLabel'),
   jumpPanel: document.getElementById('jumpPanel'),
   jumpSlider: document.getElementById('jumpSlider'),
   jumpReadout: document.getElementById('jumpReadout'),
@@ -104,6 +115,7 @@ var state = {
   langOverride: '',
   jumpUndoStack: [],
   jumpPendingSec: 0,
+  sentenceStripOn: true,
 
   timer: null,
   sentenceWordCount: 0,
@@ -259,13 +271,15 @@ function fitWordToStage(before, orp, after) {
   row.style.fontSize = fs + 'px';
 }
 
-function renderWord(word) {
+function renderWord(word, opts) {
+  opts = opts || {};
   if (!word) {
     els.wordBefore.textContent = '';
     els.wordOrp.textContent = '';
     els.wordAfter.textContent = '';
     els.placeholder.classList.remove('hidden');
     if (els.wordRow) els.wordRow.style.fontSize = '';
+    updateSentenceStrip({ forceInstant: true });
     return;
   }
   els.placeholder.classList.add('hidden');
@@ -274,6 +288,85 @@ function renderWord(word) {
   els.wordOrp.textContent = parts.orp;
   els.wordAfter.textContent = parts.after;
   fitWordToStage(parts.before, parts.orp, parts.after);
+  updateSentenceStrip(opts);
+}
+
+function loadSentenceStripPref() {
+  try {
+    var v = localStorage.getItem(LS_SENTENCE_STRIP);
+    if (v === '0') state.sentenceStripOn = false;
+    else if (v === '1') state.sentenceStripOn = true;
+  } catch (e) {}
+  applySentenceStripVisibility();
+}
+
+function saveSentenceStripPref() {
+  try {
+    localStorage.setItem(LS_SENTENCE_STRIP, state.sentenceStripOn ? '1' : '0');
+  } catch (e) {}
+  if (typeof FocusSync !== 'undefined' && FocusSync.notifySettings) {
+    FocusSync.notifySettings({ sentenceStrip: state.sentenceStripOn, updatedAt: Date.now() });
+  }
+}
+
+function applySentenceStripVisibility() {
+  document.body.classList.toggle('sentence-strip-off', !state.sentenceStripOn);
+  if (els.sentenceStripWrap) {
+    els.sentenceStripWrap.classList.toggle('is-hidden', !state.sentenceStripOn);
+  }
+  if (els.btnSentenceStrip) {
+    els.btnSentenceStrip.classList.toggle('active', state.sentenceStripOn);
+    els.btnSentenceStrip.setAttribute('aria-pressed', state.sentenceStripOn ? 'true' : 'false');
+  }
+}
+
+function setSentenceStripOn(on) {
+  state.sentenceStripOn = !!on;
+  applySentenceStripVisibility();
+  saveSentenceStripPref();
+  if (state.sentenceStripOn) updateSentenceStrip({ forceInstant: true });
+}
+
+function updateSentenceStrip(opts) {
+  opts = opts || {};
+  if (!state.sentenceStripOn) return null;
+  if (typeof SentenceStrip === 'undefined') return null;
+  if (!els.sentenceStripTrack || !els.sentenceStrip) return null;
+  var words = (typeof wordListTexts === 'function')
+    ? wordListTexts()
+    : state.wordIndices.map(function (ti) { return state.tokens[ti].text; });
+  if (!words.length) {
+    els.sentenceStripTrack.innerHTML = '';
+    els.sentenceStripTrack.style.transform = 'translate3d(0,0,0)';
+    return null;
+  }
+  var token = currentToken();
+  var dur = 120;
+  if (token && typeof displayDurationMs === 'function') {
+    try {
+      dur = displayDurationMs(token, state.wpm, state.sentenceWordCount || 0);
+    } catch (e) {}
+  }
+  // Double rAF so big ORP layout (fitWordToStage) has applied before we measure
+  var run = function () {
+    state._lastStripAlign = SentenceStrip.render({
+      words: words,
+      index: state.index,
+      splitAtOrp: splitAtOrp,
+      trackEl: els.sentenceStripTrack,
+      stripEl: els.sentenceStrip,
+      bigOrpEl: els.wordOrp,
+      durationMs: opts.forceInstant ? 0 : dur,
+      forceInstant: !!opts.forceInstant,
+      radius: 50,
+      font: '500 15px system-ui, -apple-system, Segoe UI, sans-serif'
+    });
+  };
+  if (opts.sync) run();
+  else {
+    requestAnimationFrame(function () { requestAnimationFrame(run); });
+  }
+  return state._lastStripAlign;
 }
 
 function updateProgress() {
@@ -633,6 +726,11 @@ function updateJumpScrubUI() {
   if (els.jumpWordsLabel) {
     els.jumpWordsLabel.textContent = FocusJump.formatSignedWords(plan.requestedDelta != null ? plan.requestedDelta : plan.deltaWords);
   }
+  if (els.jumpCompactLabel) {
+    var wdelta = plan.requestedDelta != null ? plan.requestedDelta : plan.deltaWords;
+    els.jumpCompactLabel.textContent = FocusJump.formatSignedTime(sec) + ' · ' +
+      (wdelta === 0 ? '0w' : ((wdelta < 0 ? '−' : '+') + Math.abs(wdelta) + 'w'));
+  }
   var total = totalWords();
   if (els.jumpTargetLabel) {
     if (total) {
@@ -730,6 +828,7 @@ function jumpBySeconds(seconds, opts) {
   else if (plan.clamped && plan.clampReason === 'end') showToast('End of book');
 
   updateJumpScrubUI();
+  updateSentenceStrip({ forceInstant: true });
   return plan;
 }
 
@@ -1820,6 +1919,13 @@ window.__FOCUS_READER__ = {
     };
   },
   setListenMode: function (on) { setListenMode(!!on); },
+  setSentenceStripOn: setSentenceStripOn,
+  updateSentenceStrip: updateSentenceStrip,
+  getStripAlign: function () {
+    if (typeof SentenceStrip === 'undefined' || !els.wordOrp) return null;
+    var stripOrp = els.sentenceStripTrack && els.sentenceStripTrack.querySelector('.strip-word.is-current .strip-orp');
+    return SentenceStrip.measureAlignment(els.wordOrp, stripOrp);
+  },
   jumpBySeconds: jumpBySeconds,
   applyJumpScrub: applyJumpScrub,
   undoJump: undoJump,
@@ -1937,7 +2043,51 @@ setWpm(300);
 ensureUiTick();
 setupAccordionsForViewport();
 setupTouchGestures();
+
 if (els.btnFocus) els.btnFocus.addEventListener('click', toggleFocusMode);
+if (els.btnFocusControl) {
+  els.btnFocusControl.addEventListener('click', toggleFocusMode);
+}
+function syncFocusButtons() {
+  var on = !!state.focusMode;
+  [els.btnFocus, els.btnFocusControl].forEach(function (b) {
+    if (!b) return;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+}
+var _origToggleFocus = toggleFocusMode;
+toggleFocusMode = function () {
+  _origToggleFocus();
+  syncFocusButtons();
+};
+
+if (els.btnSentenceStrip) {
+  els.btnSentenceStrip.addEventListener('click', function () {
+    setSentenceStripOn(!state.sentenceStripOn);
+  });
+}
+if (els.btnJumpMore && els.playerColNav) {
+  els.btnJumpMore.addEventListener('click', function () {
+    var open = !els.playerColNav.classList.contains('is-jump-expanded');
+    els.playerColNav.classList.toggle('is-jump-expanded', open);
+    els.btnJumpMore.setAttribute('aria-expanded', open ? 'true' : 'false');
+    els.btnJumpMore.textContent = open ? 'Less' : 'More';
+  });
+}
+if (els.btnControlsMore && els.playerColControls) {
+  els.btnControlsMore.addEventListener('click', function () {
+    var open = !els.playerColControls.classList.contains('is-controls-expanded');
+    els.playerColControls.classList.toggle('is-controls-expanded', open);
+    els.btnControlsMore.setAttribute('aria-expanded', open ? 'true' : 'false');
+    els.btnControlsMore.textContent = open ? 'Less' : 'More';
+  });
+}
+loadSentenceStripPref();
+window.addEventListener('resize', function () {
+  updateSentenceStrip({ forceInstant: true });
+});
+
 window.addEventListener('resize', function () {
   var token = currentToken();
   if (token) renderWord(token.text);

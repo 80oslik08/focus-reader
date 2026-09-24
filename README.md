@@ -30,6 +30,11 @@ Opening `index.html` from disk still works (no service worker on `file://`). PDF
 
 
 
+## Layout
+- Desktop (≥1100px): three-column player — time nav | ORP word + **sentence strip** | controls.
+- Tablet / phone: responsive stacking; phone has sticky bottom controls and expandable jump/more drawers.
+- **Sentence line** toggle (on by default) shows a flowing window of ~100 words under the big ORP word, with the current word’s ORP letter aligned to the focus tick. Respects `prefers-reduced-motion`. Preference stored in localStorage / settings sync.
+
 ## Time jump
 - Quick buttons: −10s / −30s / −2m / −5m and +10s / +30s / +2m / +5m. Words moved = `round(seconds × WPM / 60)` at the **current** WPM (e.g. 300 WPM × 10s → 50 words).
 - Scrub slider: log-mapped bidirectional control (−10h … +10h) snapped to nice steps; live readout shows signed time, word delta, target %, and a preview snippet. **Jump** applies, **Reset** clears, **Undo jump** restores prior positions (stack of ~10).

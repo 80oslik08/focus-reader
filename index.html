@@ -36,120 +36,153 @@
       </div>
     </header>
 
-    <div class="reader-block">
-      <section class="stage-wrap" aria-label="Reading stage" id="stageWrap">
-        <div class="stage" id="stage" tabindex="0" role="application" aria-label="Reader. Tap play/pause. Swipe to skip or change speed.">
-          <div class="ticks" aria-hidden="true"><span class="notch"></span></div>
-          <div class="word-row" id="wordRow">
-            <div class="word-anchor" id="wordAnchor">
-              <span class="word-before" id="wordBefore"></span>
-              <span class="word-orp" id="wordOrp"></span>
-              <span class="word-after" id="wordAfter"></span>
-            </div>
-          </div>
-          <div class="placeholder" id="placeholder">Paste or import text, then press Play</div>
-          <div class="loading-overlay" id="loadingOverlay" hidden>
-            <div class="loading-card">
-              <div class="loading-spinner" aria-hidden="true"></div>
-              <p id="loadingText">Loading book…</p>
-              <div class="loading-bar"><div class="loading-bar-fill" id="loadingBarFill"></div></div>
-            </div>
-          </div>
-          <p class="touch-hint" id="touchHint">Tap · swipe ←→ skip · swipe ↕ speed</p>
-        </div>
-        <div class="progress-block">
-          <div class="progress-meta">
-            <span id="progressLabel">0 / 0</span>
-            <span id="statusLabel">Ready</span>
-          </div>
-          <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progressBar">
-            <div class="progress-fill" id="progressFill"></div>
-          </div>
-        </div>
-        <div class="session-banner" id="sessionBanner" hidden>
-          <strong>Session complete</strong>
-          <span>Your reading session timer finished. Press Play to continue.</span>
-        </div>
-      </section>
+    <div class="reader-block" id="readerBlock">
+      <div class="player-row" id="playerRow">
 
-      <div class="jump-panel" id="jumpPanel" aria-label="Time jump">
-        <div class="jump-quick" id="jumpQuick">
-          <span class="jump-group-label">Jump</span>
-          <div class="jump-quick-back" role="group" aria-label="Jump back">
-            <button type="button" class="btn btn-ghost btn-touch btn-jump" data-jump-sec="-10" title="−10s">−10s</button>
-            <button type="button" class="btn btn-ghost btn-touch btn-jump" data-jump-sec="-30" title="−30s">−30s</button>
-            <button type="button" class="btn btn-ghost btn-touch btn-jump" data-jump-sec="-120" title="−2m">−2m</button>
-            <button type="button" class="btn btn-ghost btn-touch btn-jump" data-jump-sec="-300" title="−5m">−5m</button>
-          </div>
-          <div class="jump-quick-fwd" role="group" aria-label="Jump forward">
-            <button type="button" class="btn btn-ghost btn-touch btn-jump btn-jump-fwd" data-jump-sec="10" title="+10s">+10s</button>
-            <button type="button" class="btn btn-ghost btn-touch btn-jump btn-jump-fwd" data-jump-sec="30" title="+30s">+30s</button>
-            <button type="button" class="btn btn-ghost btn-touch btn-jump btn-jump-fwd" data-jump-sec="120" title="+2m">+2m</button>
-            <button type="button" class="btn btn-ghost btn-touch btn-jump btn-jump-fwd" data-jump-sec="300" title="+5m">+5m</button>
-          </div>
-        </div>
-        <div class="jump-scrub" id="jumpScrub">
-          <label class="jump-scrub-label" for="jumpSlider">Scrub</label>
-          <input type="range" id="jumpSlider" min="-1" max="1" step="0.001" value="0" aria-valuetext="0s" />
-          <div class="jump-readout" id="jumpReadout" hidden>
-            <div class="jump-readout-main">
-              <span id="jumpTimeLabel">0s</span>
-              <span id="jumpWordsLabel">0 words</span>
-              <span id="jumpTargetLabel"></span>
-              <span id="jumpClampLabel" class="jump-clamp" hidden></span>
+        <!-- LEFT: time navigation -->
+        <aside class="player-col player-col-nav" id="playerColNav" aria-label="Time navigation">
+          <div class="jump-panel" id="jumpPanel">
+            <div class="jump-scrub" id="jumpScrub">
+              <label class="jump-scrub-label" for="jumpSlider">Scrub</label>
+              <input type="range" id="jumpSlider" min="-1" max="1" step="0.001" value="0" aria-valuetext="0s" />
+              <div class="jump-readout" id="jumpReadout" hidden>
+                <div class="jump-readout-main">
+                  <span id="jumpTimeLabel">0s</span>
+                  <span id="jumpWordsLabel">0 words</span>
+                  <span id="jumpTargetLabel"></span>
+                  <span id="jumpClampLabel" class="jump-clamp" hidden></span>
+                </div>
+                <p class="jump-preview" id="jumpPreview" aria-live="polite"></p>
+              </div>
+              <div class="jump-readout-compact" id="jumpReadoutCompact" aria-hidden="true">
+                <span id="jumpCompactLabel">0s</span>
+              </div>
+              <div class="jump-scrub-actions">
+                <button type="button" class="btn btn-primary btn-touch" id="btnJumpApply" disabled>Jump</button>
+                <button type="button" class="btn btn-ghost btn-touch" id="btnJumpCancel" disabled>Reset</button>
+                <button type="button" class="btn btn-ghost btn-touch" id="btnJumpUndo" disabled title="Undo last jump">Undo</button>
+                <button type="button" class="btn btn-ghost btn-touch btn-jump-more" id="btnJumpMore" aria-expanded="false" title="More jump options">More</button>
+              </div>
             </div>
-            <p class="jump-preview" id="jumpPreview" aria-live="polite"></p>
-          </div>
-          <div class="jump-scrub-actions">
-            <button type="button" class="btn btn-primary btn-touch" id="btnJumpApply" disabled>Jump</button>
-            <button type="button" class="btn btn-ghost btn-touch" id="btnJumpCancel" disabled>Reset</button>
-            <button type="button" class="btn btn-ghost btn-touch" id="btnJumpUndo" disabled title="Undo last jump">Undo jump</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="controls controls-sticky" id="controls">
-        <button type="button" class="btn btn-ghost btn-touch" id="btnWpmDown" title="−5 WPM (↓)" aria-label="Decrease speed 5 WPM">−5 WPM</button>
-        <button type="button" class="btn btn-primary btn-play btn-touch" id="btnPlay" title="Play / Pause (Space)">
-          <svg id="iconPlay" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
-          <svg id="iconPause" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
-          <span id="playLabel">Play</span>
-        </button>
-        <button type="button" class="btn btn-ghost btn-touch" id="btnWpmUp" title="+5 WPM (↑)" aria-label="Increase speed 5 WPM">+5 WPM</button>
-        <button type="button" class="btn btn-touch" id="btnRestart" title="Restart">Restart</button>
-        <button type="button" class="btn btn-ghost btn-touch" id="btnListen" title="Listen mode (speech)" aria-pressed="false">Listen</button>
-
-        <div class="speed-panel">
-          <label for="wpmRange">Speed</label>
-          <div class="speed-slider-wrap">
-            <input type="range" id="wpmRange" min="100" max="1000" step="5" value="300" />
-            <div class="voice-limit-track" id="voiceLimitTrack" hidden>
-              <div class="voice-limit-zone" id="voiceLimitZone" title="Voice listening limit — speeds above this are hard to follow by ear"></div>
-              <div class="voice-limit-tick" id="voiceLimitTick"><span id="voiceLimitLabel">voice ~300</span></div>
+            <div class="jump-quick" id="jumpQuick">
+              <span class="jump-group-label">Jump</span>
+              <div class="jump-quick-back" role="group" aria-label="Jump back">
+                <button type="button" class="btn btn-ghost btn-touch btn-jump" data-jump-sec="-10" title="−10s">−10s</button>
+                <button type="button" class="btn btn-ghost btn-touch btn-jump" data-jump-sec="-30" title="−30s">−30s</button>
+                <button type="button" class="btn btn-ghost btn-touch btn-jump" data-jump-sec="-120" title="−2m">−2m</button>
+                <button type="button" class="btn btn-ghost btn-touch btn-jump" data-jump-sec="-300" title="−5m">−5m</button>
+              </div>
+              <div class="jump-quick-fwd" role="group" aria-label="Jump forward">
+                <button type="button" class="btn btn-ghost btn-touch btn-jump btn-jump-fwd" data-jump-sec="10" title="+10s">+10s</button>
+                <button type="button" class="btn btn-ghost btn-touch btn-jump btn-jump-fwd" data-jump-sec="30" title="+30s">+30s</button>
+                <button type="button" class="btn btn-ghost btn-touch btn-jump btn-jump-fwd" data-jump-sec="120" title="+2m">+2m</button>
+                <button type="button" class="btn btn-ghost btn-touch btn-jump btn-jump-fwd" data-jump-sec="300" title="+5m">+5m</button>
+              </div>
             </div>
           </div>
-          <input type="number" id="wpmInput" min="100" max="1000" step="5" value="300" inputmode="numeric" />
-          <span class="voice-limit-hint" id="voiceLimitHint" hidden></span>
-        </div>
-        <div class="listen-voice-row" id="listenVoiceRow" hidden>
-          <label for="voiceSelect">Voice</label>
-          <select id="voiceSelect"></select>
-          <label for="langOverride">Lang</label>
-          <select id="langOverride">
-            <option value="">Auto</option>
-            <option value="en">English</option>
-            <option value="sk">Slovak</option>
-            <option value="cs">Czech</option>
-            <option value="de">German</option>
-            <option value="pl">Polish</option>
-            <option value="hu">Hungarian</option>
-            <option value="fr">French</option>
-            <option value="es">Spanish</option>
-            <option value="it">Italian</option>
-            <option value="ru">Russian</option>
-            <option value="uk">Ukrainian</option>
-          </select>
-        </div>
+        </aside>
+
+        <!-- CENTER: ORP + sentence strip + progress -->
+        <section class="player-col player-col-center" id="playerColCenter" aria-label="Reader">
+          <div class="stage-wrap" id="stageWrap">
+            <div class="stage" id="stage" tabindex="0" role="application" aria-label="Reader. Tap play/pause. Swipe to skip or change speed.">
+              <div class="ticks" aria-hidden="true"><span class="notch"></span></div>
+              <div class="word-row" id="wordRow">
+                <div class="word-anchor" id="wordAnchor">
+                  <span class="word-before" id="wordBefore"></span>
+                  <span class="word-orp" id="wordOrp"></span>
+                  <span class="word-after" id="wordAfter"></span>
+                </div>
+              </div>
+              <div class="placeholder" id="placeholder">Paste or import text, then press Play</div>
+              <div class="loading-overlay" id="loadingOverlay" hidden>
+                <div class="loading-card">
+                  <div class="loading-spinner" aria-hidden="true"></div>
+                  <p id="loadingText">Loading book…</p>
+                  <div class="loading-bar"><div class="loading-bar-fill" id="loadingBarFill"></div></div>
+                </div>
+              </div>
+              <p class="touch-hint" id="touchHint">Tap · swipe ←→ skip · swipe ↕ speed</p>
+            </div>
+
+            <div class="sentence-strip-wrap" id="sentenceStripWrap">
+              <div class="sentence-strip-anchor" aria-hidden="true"></div>
+              <div class="sentence-strip" id="sentenceStrip" aria-label="Current sentence">
+                <div class="sentence-strip-track" id="sentenceStripTrack"></div>
+              </div>
+            </div>
+
+            <div class="progress-block">
+              <div class="progress-meta">
+                <span id="progressLabel">0 / 0</span>
+                <span id="statusLabel">Ready</span>
+              </div>
+              <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progressBar">
+                <div class="progress-fill" id="progressFill"></div>
+              </div>
+            </div>
+            <div class="session-banner" id="sessionBanner" hidden>
+              <strong>Session complete</strong>
+              <span>Your reading session timer finished. Press Play to continue.</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- RIGHT: playback controls -->
+        <aside class="player-col player-col-controls" id="playerColControls" aria-label="Playback controls">
+          <div class="controls controls-sticky" id="controls">
+            <div class="controls-play-row">
+              <button type="button" class="btn btn-ghost btn-touch" id="btnWpmDown" title="−5 WPM (↓)" aria-label="Decrease speed 5 WPM">−5 WPM</button>
+              <button type="button" class="btn btn-primary btn-play btn-touch" id="btnPlay" title="Play / Pause (Space)">
+                <svg id="iconPlay" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+                <svg id="iconPause" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+                <span id="playLabel">Play</span>
+              </button>
+              <button type="button" class="btn btn-ghost btn-touch" id="btnWpmUp" title="+5 WPM (↑)" aria-label="Increase speed 5 WPM">+5 WPM</button>
+            </div>
+
+            <div class="speed-panel">
+              <label for="wpmRange">Speed</label>
+              <div class="speed-slider-wrap">
+                <input type="range" id="wpmRange" min="100" max="1000" step="5" value="300" />
+                <div class="voice-limit-track" id="voiceLimitTrack" hidden>
+                  <div class="voice-limit-zone" id="voiceLimitZone" title="Voice listening limit — speeds above this are hard to follow by ear"></div>
+                  <div class="voice-limit-tick" id="voiceLimitTick"><span id="voiceLimitLabel">voice ~300</span></div>
+                </div>
+              </div>
+              <input type="number" id="wpmInput" min="100" max="1000" step="5" value="300" inputmode="numeric" />
+              <span class="voice-limit-hint" id="voiceLimitHint" hidden></span>
+            </div>
+
+            <div class="controls-extra-row">
+              <button type="button" class="btn btn-ghost btn-touch" id="btnListen" title="Listen mode (speech)" aria-pressed="false">Listen</button>
+              <button type="button" class="btn btn-touch" id="btnRestart" title="Restart">Restart</button>
+              <button type="button" class="btn btn-ghost btn-touch" id="btnFocusControl" title="Focus mode (F)" aria-pressed="false">Focus</button>
+              <button type="button" class="btn btn-ghost btn-touch" id="btnSentenceStrip" title="Toggle sentence line" aria-pressed="true">Sentence line</button>
+              <button type="button" class="btn btn-ghost btn-touch btn-controls-more" id="btnControlsMore" aria-expanded="false" title="More controls">More</button>
+            </div>
+
+            <div class="listen-voice-row" id="listenVoiceRow" hidden>
+              <label for="voiceSelect">Voice</label>
+              <select id="voiceSelect"></select>
+              <label for="langOverride">Lang</label>
+              <select id="langOverride">
+                <option value="">Auto</option>
+                <option value="en">English</option>
+                <option value="sk">Slovak</option>
+                <option value="cs">Czech</option>
+                <option value="de">German</option>
+                <option value="pl">Polish</option>
+                <option value="hu">Hungarian</option>
+                <option value="fr">French</option>
+                <option value="es">Spanish</option>
+                <option value="it">Italian</option>
+                <option value="ru">Russian</option>
+                <option value="uk">Ukrainian</option>
+              </select>
+            </div>
+          </div>
+        </aside>
       </div>
     </div>
 
@@ -336,6 +369,7 @@
   <script src="voice-limit.js"></script>
   <script src="listen.js"></script>
   <script src="jump.js"></script>
+  <script src="sentence-strip.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

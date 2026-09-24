@@ -1509,3 +1509,368 @@ code {
     justify-content: center;
   }
 }
+
+/* ========== Player three-column layout ========== */
+.player-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(220px, 280px);
+  gap: 14px 16px;
+  align-items: start;
+  width: 100%;
+}
+.player-col {
+  min-width: 0;
+}
+.player-col-center {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.player-col-center .stage {
+  min-height: 160px;
+}
+.player-col-center .word-row {
+  font-size: clamp(2rem, 4.5vw, 3.4rem);
+}
+.player-col-nav .jump-panel {
+  flex-direction: column;
+  padding: 0;
+  width: 100%;
+}
+.player-col-nav .jump-scrub,
+.player-col-nav .jump-quick {
+  width: 100%;
+  max-width: none;
+  flex: none;
+}
+.player-col-nav .jump-quick {
+  flex-direction: column;
+  align-items: stretch;
+}
+.player-col-nav .jump-quick-back,
+.player-col-nav .jump-quick-fwd {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  width: 100%;
+}
+.player-col-nav .btn-jump {
+  flex: none;
+  width: 100%;
+  padding: 8px 4px;
+  font-size: 0.8rem;
+}
+.player-col-controls .controls {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 0;
+}
+.controls-play-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+}
+.controls-play-row .btn-play {
+  min-width: 120px;
+  min-height: 52px;
+  font-size: 1.05rem;
+}
+.controls-extra-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+}
+.player-col-controls .speed-panel {
+  max-width: none;
+  width: 100%;
+  flex: none;
+}
+.jump-readout-compact {
+  display: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+#btnSentenceStrip.active,
+#btnFocusControl.active,
+#btnListen.active {
+  background: var(--accent, #3b82f6);
+  color: #fff;
+  border-color: transparent;
+}
+
+/* Sentence strip */
+.sentence-strip-wrap {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  height: 2.4rem;
+  margin: 2px 0 4px;
+  mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+}
+.sentence-strip-wrap.is-hidden {
+  display: none;
+}
+.sentence-strip {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.sentence-strip-track {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+  will-change: transform;
+  font-size: 0.95rem;
+  line-height: 2.4rem;
+  font-weight: 500;
+  color: var(--text, #e2e8f0);
+  transform: translate3d(0,0,0);
+}
+.strip-word {
+  display: inline;
+}
+.strip-word.is-past {
+  opacity: 0.38;
+}
+.strip-word.is-future {
+  opacity: 0.85;
+}
+.strip-word.is-current {
+  opacity: 1;
+  background: rgba(74, 125, 224, 0.22);
+  border-radius: 4px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  padding: 0.1em 0.15em;
+  text-decoration: underline;
+  text-decoration-color: rgba(239, 68, 68, 0.55);
+  text-underline-offset: 3px;
+}
+.strip-orp {
+  color: #ef4444;
+  font-weight: 700;
+}
+body.sentence-strip-off .sentence-strip-wrap {
+  display: none;
+}
+
+/* Phone bottom bar helpers (hidden on desktop) */
+.btn-jump-more,
+.btn-controls-more {
+  display: none;
+}
+
+/* —— Tablet 700–1100px —— */
+@media (max-width: 1099px) and (min-width: 700px) {
+  .player-row {
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "center center"
+      "nav controls";
+  }
+  .player-col-center { grid-area: center; }
+  .player-col-nav { grid-area: nav; }
+  .player-col-controls { grid-area: controls; }
+  .player-col-center .word-row {
+    font-size: clamp(1.8rem, 5vw, 2.8rem);
+  }
+}
+
+/* —— Phone portrait <700 —— */
+@media (max-width: 699px) {
+  .player-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .player-col-center { order: 1; }
+  .player-col-nav { order: 2; }
+  .player-col-controls {
+    order: 3;
+    position: sticky;
+    bottom: 0;
+    z-index: 40;
+    padding: 8px 6px calc(8px + env(safe-area-inset-bottom, 0px));
+    background: linear-gradient(180deg, transparent, var(--bg, #0b0d12) 18%);
+    margin: 0 -4px;
+  }
+  .player-col-center .stage {
+    min-height: 120px;
+  }
+  .player-col-center .word-row {
+    font-size: clamp(1.5rem, 8vw, 2.2rem);
+  }
+  .sentence-strip-track {
+    font-size: 0.8rem;
+    line-height: 2rem;
+  }
+  .sentence-strip-wrap {
+    height: 2rem;
+  }
+  .jump-readout-compact {
+    display: block;
+  }
+  .jump-readout-main,
+  .jump-preview,
+  .jump-quick,
+  #btnJumpCancel,
+  #btnJumpUndo {
+    display: none;
+  }
+  .player-col-nav.is-jump-expanded .jump-quick,
+  .player-col-nav.is-jump-expanded .jump-preview,
+  .player-col-nav.is-jump-expanded #btnJumpCancel,
+  .player-col-nav.is-jump-expanded #btnJumpUndo,
+  .player-col-nav.is-jump-expanded .jump-readout-main {
+    display: flex;
+  }
+  .player-col-nav.is-jump-expanded .jump-quick {
+    display: flex;
+  }
+  .player-col-nav.is-jump-expanded .jump-preview {
+    display: block;
+  }
+  .btn-jump-more {
+    display: inline-flex;
+  }
+  .controls-play-row {
+    width: 100%;
+  }
+  .player-col-controls .speed-panel,
+  .player-col-controls .listen-voice-row,
+  .player-col-controls #btnRestart,
+  .player-col-controls #btnFocusControl,
+  .player-col-controls #btnSentenceStrip {
+    display: none;
+  }
+  .player-col-controls.is-controls-expanded .speed-panel,
+  .player-col-controls.is-controls-expanded #btnRestart,
+  .player-col-controls.is-controls-expanded #btnFocusControl,
+  .player-col-controls.is-controls-expanded #btnSentenceStrip {
+    display: flex;
+  }
+  .player-col-controls.is-controls-expanded .listen-voice-row:not([hidden]) {
+    display: flex;
+  }
+  .btn-controls-more {
+    display: inline-flex;
+  }
+  .app, .reader-block, .player-row, .player-col {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+}
+
+/* —— Phone landscape: short height, width ≥640 —— */
+@media (max-height: 500px) and (min-width: 640px) {
+  .app, .reader-block, .player-row, .player-col, .jump-panel, .controls {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+  .player-row {
+    display: grid !important;
+    grid-template-columns: minmax(140px, 200px) minmax(0, 1fr) minmax(140px, 200px) !important;
+    grid-template-areas: none !important;
+    gap: 6px;
+    flex-direction: unset;
+  }
+  .player-col-center,
+  .player-col-nav,
+  .player-col-controls {
+    order: initial !important;
+    position: static !important;
+    grid-area: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+  }
+  .player-col-center .stage {
+    min-height: 72px;
+  }
+  .player-col-center .word-row {
+    font-size: clamp(1.2rem, 3vw, 1.8rem);
+  }
+  .sentence-strip-wrap {
+    height: 1.5rem;
+  }
+  .sentence-strip-track {
+    font-size: 0.72rem;
+    line-height: 1.5rem;
+  }
+  .btn-jump-more,
+  .btn-controls-more {
+    display: none !important;
+  }
+  .jump-readout-compact {
+    display: none !important;
+  }
+  .player-col-nav .jump-quick {
+    display: flex !important;
+    flex-direction: column;
+  }
+  .player-col-nav .jump-quick-back,
+  .player-col-nav .jump-quick-fwd {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .player-col-nav .btn-jump {
+    min-width: 0;
+    padding: 6px 2px;
+    font-size: 0.7rem;
+  }
+  .player-col-nav .jump-preview {
+    display: none; /* keep compact in landscape */
+    max-height: 2.5rem;
+    overflow: hidden;
+  }
+  .player-col-controls .speed-panel,
+  .player-col-controls #btnRestart,
+  .player-col-controls #btnFocusControl,
+  .player-col-controls #btnSentenceStrip {
+    display: flex !important;
+  }
+  .player-col-controls .speed-panel {
+    padding: 4px 8px;
+    gap: 6px;
+  }
+  .controls-play-row .btn-play {
+    min-width: 88px;
+    min-height: 44px;
+  }
+  .controls-extra-row .btn {
+    padding: 6px 8px;
+    font-size: 0.75rem;
+  }
+}
+
+/* Focus mode: hide side columns + below sections */
+body.focus-mode .player-col-nav,
+body.focus-mode .player-col-controls,
+body.focus-mode .below-reader,
+body.focus-mode .footer-note,
+body.focus-mode .tagline,
+body.focus-mode .touch-hint {
+  display: none !important;
+}
+body.focus-mode .player-row {
+  grid-template-columns: 1fr;
+}
+body.focus-mode .player-col-center {
+  width: 100%;
+}
+body.focus-mode .sentence-strip-wrap {
+  display: block;
+}
+body.focus-mode.sentence-strip-off .sentence-strip-wrap {
+  display: none;
+}
+body.focus-mode .app {
+  max-width: 920px;
+}
