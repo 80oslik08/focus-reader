@@ -97,6 +97,41 @@ function highlightOrpBracket(word) {
  * @param {string} text
  * @returns {Array<{ text: string, type: 'word' | 'para' }>}
  */
+
+function tokenizeAsync(text, onProgress) {
+  return new Promise(function (resolve) {
+    if (!text || !String(text).trim()) {
+      resolve([]);
+      return;
+    }
+    var normalized = String(text).normalize('NFC').replace(/\r\n/g, '\n');
+    var paragraphs = normalized.split(/\n\s*\n/);
+    var tokens = [];
+    var i = 0;
+    function chunk() {
+      var start = Date.now();
+      while (i < paragraphs.length && Date.now() - start < 12) {
+        var para = paragraphs[i];
+        var words = para.trim().split(/\s+/).filter(Boolean);
+        words.forEach(function (w) {
+          tokens.push({ text: w, type: 'word' });
+        });
+        if (i < paragraphs.length - 1 && words.length > 0) {
+          tokens.push({ text: '', type: 'para' });
+        }
+        i++;
+      }
+      if (onProgress) onProgress(i / Math.max(paragraphs.length, 1));
+      if (i < paragraphs.length) {
+        setTimeout(chunk, 0);
+      } else {
+        resolve(tokens);
+      }
+    }
+    chunk();
+  });
+}
+
 function tokenize(text) {
   if (!text || !text.trim()) return [];
   const tokens = [];
@@ -263,6 +298,7 @@ global.ORP = {
   splitAtOrp: splitAtOrp,
   highlightOrpBracket: highlightOrpBracket,
   tokenize: tokenize,
+  tokenizeAsync: tokenizeAsync,
   baseMs: baseMs,
   lengthMultiplier: lengthMultiplier,
   pauseMultiplier: pauseMultiplier,

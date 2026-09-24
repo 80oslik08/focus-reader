@@ -1,0 +1,90 @@
+{
+  "name": "Public domain pack",
+  "folderHint": "Focus Reader Books",
+  "books": [
+    {
+      "file": "Alice's Adventures in Wonderland - Lewis Carroll.txt",
+      "title": "Alice's Adventures in Wonderland - Lewis Carroll",
+      "words": 27441,
+      "bytes": 150439,
+      "source": "Project Gutenberg (public domain)"
+    },
+    {
+      "file": "Crime and Punishment - Fyodor Dostoevsky.txt",
+      "title": "Crime and Punishment - Fyodor Dostoevsky",
+      "words": 208804,
+      "bytes": 1159579,
+      "source": "Project Gutenberg (public domain)"
+    },
+    {
+      "file": "Dracula - Bram Stoker.txt",
+      "title": "Dracula - Bram Stoker",
+      "words": 163951,
+      "bytes": 849719,
+      "source": "Project Gutenberg (public domain)"
+    },
+    {
+      "file": "Frankenstein - Mary Shelley.txt",
+      "title": "Frankenstein - Mary Shelley",
+      "words": 75379,
+      "bytes": 421281,
+      "source": "Project Gutenberg (public domain)"
+    },
+    {
+      "file": "Meditations - Marcus Aurelius.txt",
+      "title": "Meditations - Marcus Aurelius",
+      "words": 72207,
+      "bytes": 398528,
+      "source": "Project Gutenberg (public domain)"
+    },
+    {
+      "file": "Moby Dick - Herman Melville.txt",
+      "title": "Moby Dick - Herman Melville",
+      "words": 219456,
+      "bytes": 1233325,
+      "source": "Project Gutenberg (public domain)"
+    },
+    {
+      "file": "Pride and Prejudice - Jane Austen.txt",
+      "title": "Pride and Prejudice - Jane Austen",
+      "words": 128755,
+      "bytes": 730174,
+      "source": "Project Gutenberg (public domain)"
+    },
+    {
+      "file": "The Adventures of Sherlock Holmes - Arthur Conan Doyle.txt",
+      "title": "The Adventures of Sherlock Holmes - Arthur Conan Doyle",
+      "words": 105955,
+      "bytes": 575350,
+      "source": "Project Gutenberg (public domain)"
+    },
+    {
+      "file": "The Art of War - Sun Tzu.txt",
+      "title": "The Art of War - Sun Tzu",
+      "words": 56642,
+      "bytes": 315060,
+      "source": "Project Gutenberg (public domain)"
+    },
+    {
+      "file": "The King James Bible.txt",
+      "title": "The King James Bible",
+      "words": 854384,
+      "bytes": 4336303,
+      "source": "Project Gutenberg (public domain)"
+    },
+    {
+      "file": "The Odyssey - Homer.txt",
+      "title": "The Odyssey - Homer",
+      "words": 130607,
+      "bytes": 685736,
+      "source": "Project Gutenberg (public domain)"
+    },
+    {
+      "file": "War and Peace - Leo Tolstoy.txt",
+      "title": "War and Peace - Leo Tolstoy",
+      "words": 573435,
+      "bytes": 3269690,
+      "source": "Project Gutenberg (public domain)"
+    }
+  ]
+}

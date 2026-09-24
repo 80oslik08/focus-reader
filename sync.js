@@ -7,7 +7,11 @@
 (function (global) {
   'use strict';
 
-  var SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+  var SCOPE_DEFAULT = 'https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/drive.readonly';
+  function SCOPE() {
+    var c = global.FOCUS_READER_CONFIG || {};
+    return (c.googleScopes || SCOPE_DEFAULT).trim() || SCOPE_DEFAULT;
+  }
   var LS_CONNECTED = 'focusReader.syncConnected';
   var LS_DEVICE = 'focusReader.deviceName';
   var SYNC_INTERVAL_MS = 20000;
@@ -142,18 +146,34 @@
   }
 
   function enqueueBook(doc) {
-    return queuePut({
-      key: 'book:' + doc.id,
-      kind: 'book',
-      id: doc.id,
-      payload: {
+    // Drive-library books stay in the user's visible folder — only store a reference in appData
+    var payload;
+    if (doc.driveFileId) {
+      payload = {
+        id: doc.id,
+        name: doc.name,
+        type: doc.type || 'drive',
+        wordCount: doc.wordCount,
+        createdAt: doc.createdAt || Date.now(),
+        driveFileId: doc.driveFileId,
+        driveFileName: doc.driveFileName || doc.name,
+        source: 'drive-library'
+      };
+    } else {
+      payload = {
         id: doc.id,
         name: doc.name,
         type: doc.type,
         text: doc.text,
         wordCount: doc.wordCount,
         createdAt: doc.createdAt || Date.now()
-      },
+      };
+    }
+    return queuePut({
+      key: 'book:' + doc.id,
+      kind: 'book',
+      id: doc.id,
+      payload: payload,
       updatedAt: Date.now()
     });
   }
@@ -368,7 +388,7 @@
       if (state.tokenClient) return;
       state.tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: state.clientId,
-        scope: SCOPE,
+        scope: SCOPE(),
         callback: function () {}
       });
     });
@@ -534,6 +554,9 @@
         if (f.name.indexOf('book-') === 0 && f.name.endsWith('.json')) {
           return ad.downloadJson(f.id).then(function (data) {
             cloudBooks[data.id] = data;
+            if (data.driveFileId && !data.text) {
+              cloudBooks[data.id].fromDriveLibrary = true;
+            }
           }).catch(function () {});
         }
         if (f.name.indexOf('progress-') === 0 && f.name.endsWith('.json')) {
@@ -661,7 +684,7 @@
   } catch (e) {}
 
   global.FocusSync = {
-    SCOPE: SCOPE,
+    SCOPE: SCOPE_DEFAULT,
     isConfigured: isConfigured,
     getStatus: getStatus,
     onStatus: onStatus,
@@ -677,6 +700,7 @@
     enqueueBook: enqueueBook,
     enqueueProgress: enqueueProgress,
     enqueueDelete: enqueueDelete,
+    _getAccessToken: function () { return state.token; },
     // test hooks
     _mergeBooks: mergeBooks,
     _createAdapter: createDriveAdapter,

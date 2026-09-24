@@ -18,7 +18,7 @@ Offline-first Spritz-style ORP RSVP speed reader with optional Google Drive sync
 
 ```js
 window.FOCUS_READER_CONFIG = {
-  googleClientId: 'YOUR_CLIENT_ID.apps.googleusercontent.com'
+  googleClientId: '424960885576-…' // already set in this repo
 };
 ```
 
@@ -29,3 +29,11 @@ Opening `index.html` from disk still works (no service worker on `file://`). PDF
 
 ## License
 Personal project.
+
+
+## Library
+- **Public domain** pack ships with the app (`library-seed/`) — Bible, Austen, Melville, etc.
+- **Google Drive** folder `Focus Reader Books` is listed after you Connect (drive.readonly).
+- Progress sync uses drive.appdata only.
+
+First Google Connect may show an “app isn’t verified” warning (Testing mode) — expected.

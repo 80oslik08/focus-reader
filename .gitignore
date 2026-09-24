@@ -1,6 +1,7 @@
 node_modules/
 .pw-profile/
 verify-live-report.json
+verify-lib.mjs
 live-phone.png
 live-desktop.png
 package.json

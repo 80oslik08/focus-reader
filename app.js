@@ -8,6 +8,7 @@
 var alphaLength = ORP.alphaLength;
 var splitAtOrp = ORP.splitAtOrp;
 var tokenize = ORP.tokenize;
+var tokenizeAsync = ORP.tokenizeAsync || function (t) { return Promise.resolve(tokenize(t)); };
 var displayDurationMs = ORP.displayDurationMs;
 var estimateRemainingMs = ORP.estimateRemainingMs;
 var ORP_TABLE = ORP.ORP_TABLE;
@@ -553,63 +554,112 @@ function pastedNameFromText(text) {
  * Load text into reader.
  * opts: { toast, persist, name, type, position, docId, resumeNotice, resetElapsed }
  */
+function showLoading(msg, frac) {
+  var ov = document.getElementById('loadingOverlay');
+  var lt = document.getElementById('loadingText');
+  var fill = document.getElementById('loadingBarFill');
+  if (ov) ov.hidden = false;
+  if (lt && msg) lt.textContent = msg;
+  if (fill) fill.style.width = Math.round((frac || 0) * 100) + '%';
+}
+
+function hideLoading() {
+  var ov = document.getElementById('loadingOverlay');
+  if (ov) ov.hidden = true;
+}
+
 function applyText(text, opts) {
   opts = opts || {};
   var doToast = opts.toast !== false;
   stopWordTimer();
   flushPlayClock();
-  state.tokens = tokenize(text || '');
-  rebuildWordIndex();
-  var total = totalWords();
-  var pos = opts.position != null ? opts.position : 0;
-  if (pos < 0) pos = 0;
-  if (total && pos >= total) pos = total - 1;
-  state.index = total ? pos : 0;
-  state.sentenceWordCount = 0;
   setPlayingUI(false);
 
-  if (opts.resetElapsed !== false) resetElapsedTimers();
+  var finish = function (tokens) {
+    state.tokens = tokens || [];
+    rebuildWordIndex();
+    var total = totalWords();
+    var pos = opts.position != null ? opts.position : 0;
+    if (pos < 0) pos = 0;
+    if (total && pos >= total) pos = total - 1;
+    state.index = total ? pos : 0;
+    state.sentenceWordCount = 0;
+    if (opts.resetElapsed !== false) resetElapsedTimers();
 
-  if (total) {
-    renderWord(state.tokens[state.wordIndices[state.index]].text);
-    els.statusLabel.textContent = 'Ready';
-    if (doToast && !opts.resumeNotice) showToast(total + ' words loaded');
-  } else {
-    renderWord(null);
-    els.placeholder.textContent = 'Paste or import text, then press Play';
-    els.statusLabel.textContent = 'Ready';
-  }
-  updateProgress();
+    if (opts.driveFileId) {
+      state.currentDriveFileId = opts.driveFileId;
+    }
 
-  if (opts.persist !== false && text && text.trim() && typeof RecentStore !== 'undefined') {
-    var name = opts.name || pastedNameFromText(text);
-    var type = opts.type || 'paste';
-    RecentStore.upsertDocument({
-      name: name,
-      type: type,
-      text: text,
-      wordCount: total,
-      position: state.index,
-      wpm: state.wpm,
-      keepPosition: false
-    }).then(function (doc) {
-      state.currentDocId = doc.id;
-      state.currentDocName = doc.name;
-      state.currentDocType = doc.type;
-      return refreshRecentList();
-    }).catch(function (err) {
+    if (total) {
+      renderWord(state.tokens[state.wordIndices[state.index]].text);
+      els.statusLabel.textContent = 'Ready';
+      if (doToast && !opts.resumeNotice) showToast(total.toLocaleString() + ' words loaded');
+    } else {
+      renderWord(null);
+      els.placeholder.textContent = 'Paste or import text, then press Play';
+      els.statusLabel.textContent = 'Ready';
+    }
+    updateProgress();
+    hideLoading();
+
+    if (opts.persist !== false && text && String(text).trim() && typeof RecentStore !== 'undefined') {
+      var name = opts.name || pastedNameFromText(text);
+      var type = opts.type || 'paste';
+      RecentStore.upsertDocument({
+        name: name,
+        type: type,
+        text: text,
+        wordCount: total,
+        position: state.index,
+        wpm: state.wpm,
+        keepPosition: false
+      }).then(function (doc) {
+        if (opts.driveFileId) {
+          doc.driveFileId = opts.driveFileId;
+          doc.driveFileName = name;
+          doc.source = 'drive-library';
+          return RecentStore.put(doc).then(function (saved) {
+            if (typeof FocusSync !== 'undefined') {
+              FocusSync.notifyLocalChange('book', saved);
+              FocusSync.notifyLocalChange('progress', saved);
+            }
+            return saved;
+          });
+        }
+        return doc;
+      }).then(function (doc) {
+        state.currentDocId = doc.id;
+        state.currentDocName = doc.name;
+        state.currentDocType = doc.type;
+        return refreshRecentList();
+      }).catch(function (err) { console.error(err); });
+    } else if (opts.docId) {
+      state.currentDocId = opts.docId;
+      state.currentDocName = opts.name || null;
+      state.currentDocType = opts.type || null;
+    }
+
+    if (opts.resumeNotice && opts.name) {
+      showToast('Resumed: ' + opts.name + ' at word ' + (state.index + 1));
+    }
+  };
+
+  var raw = text || '';
+  var approxWords = raw.length / 5;
+  if (approxWords > 20000 && tokenizeAsync) {
+    showLoading('Preparing book…', 0.02);
+    tokenizeAsync(raw, function (frac) {
+      showLoading('Tokenizing… ' + Math.round(frac * 100) + '%', frac);
+    }).then(finish).catch(function (err) {
       console.error(err);
+      hideLoading();
+      showToast('Could not load book');
     });
-  } else if (opts.docId) {
-    state.currentDocId = opts.docId;
-    state.currentDocName = opts.name || null;
-    state.currentDocType = opts.type || null;
-  }
-
-  if (opts.resumeNotice && opts.name) {
-    showToast('Resumed: ' + opts.name + ' at word ' + (state.index + 1));
+  } else {
+    finish(tokenize(raw));
   }
 }
+
 
 async function extractPdfText(arrayBuffer) {
   if (typeof pdfjsLib === 'undefined') throw new Error('pdf.js not loaded');
@@ -925,7 +975,7 @@ function toggleFocusMode() {
 function setupAccordionsForViewport() {
   var narrow = window.matchMedia('(max-width: 720px)').matches;
   var landscapeShort = window.matchMedia('(max-height: 480px) and (orientation: landscape)').matches;
-  ['panelTimer', 'panelRecent', 'panelSync', 'panelOrp'].forEach(function (id) {
+  ['panelLibrary', 'panelTimer', 'panelRecent', 'panelSync', 'panelOrp'].forEach(function (id) {
     var el = document.getElementById(id);
     if (!el) return;
     if (narrow || landscapeShort) el.open = false;
@@ -933,6 +983,8 @@ function setupAccordionsForViewport() {
   });
   var text = document.getElementById('panelText');
   if (text) text.open = true;
+  var lib = document.getElementById('panelLibrary');
+  if (lib) lib.open = true;
 }
 
 function setupTouchGestures() {
@@ -1399,8 +1451,8 @@ function updateSyncPanel() {
     deviceInput.value = st.deviceName || '';
   }
   if (!st.configured) {
-    if (line) line.textContent = 'Cloud sync not configured yet';
-    if (meta) meta.textContent = 'Add googleClientId in config.js to enable Drive sync.';
+    if (line) line.textContent = 'Sync setup in progress';
+    if (meta) meta.textContent = 'Google Drive connection is being prepared. Reading still works fully offline.';
     if (btnC) btnC.hidden = true;
     if (btnN) btnN.hidden = true;
     if (btnD) btnD.hidden = true;
@@ -1570,6 +1622,157 @@ pause = function () {
 
 registerServiceWorker();
 wireSyncUi();
+
+/* ——— Library panel ——— */
+function renderLibraryLists(publicBooks, driveFiles, driveMsg) {
+  var pub = document.getElementById('libraryPublicList');
+  var drv = document.getElementById('libraryDriveList');
+  var status = document.getElementById('libraryStatus');
+  if (status) status.textContent = driveMsg || '';
+  if (pub) {
+    pub.innerHTML = '';
+    (publicBooks || []).forEach(function (b) {
+      var li = document.createElement('li');
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'library-item';
+      btn.innerHTML = '<span class="library-item-title"></span><span class="library-item-meta"></span>';
+      btn.querySelector('.library-item-title').textContent = b.title;
+      btn.querySelector('.library-item-meta').textContent =
+        (b.words ? b.words.toLocaleString() + ' words' : '') +
+        (b.bytes ? ' · ' + FocusLibrary.formatSize(b.bytes) : '') +
+        ' · public domain';
+      btn.addEventListener('click', function () { openPublicBook(b); });
+      li.appendChild(btn);
+      pub.appendChild(li);
+    });
+    if (!publicBooks || !publicBooks.length) {
+      pub.innerHTML = '<p class="library-empty">Public domain pack unavailable offline until cached.</p>';
+    }
+  }
+  if (drv) {
+    drv.innerHTML = '';
+    if (!driveFiles || !driveFiles.length) {
+      var p = document.createElement('p');
+      p.className = 'library-empty';
+      p.textContent = driveMsg || 'Connect Google Drive to see your books. Put .txt or .pdf files in the Focus Reader Books folder in your Drive.';
+      drv.appendChild(p);
+    } else {
+      driveFiles.forEach(function (f) {
+        var li = document.createElement('li');
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'library-item';
+        btn.innerHTML = '<span class="library-item-title"></span><span class="library-item-meta"></span>';
+        btn.querySelector('.library-item-title').textContent = f.name;
+        btn.querySelector('.library-item-meta').textContent =
+          FocusLibrary.formatSize(f.size) + ' · ' + (f.mimeType || 'file');
+        btn.addEventListener('click', function () { openDriveBook(f); });
+        li.appendChild(btn);
+        drv.appendChild(li);
+      });
+    }
+  }
+}
+
+function openPublicBook(b) {
+  showLoading('Downloading ' + b.title + '…', 0.05);
+  FocusLibrary.loadPublicBook(b.file).then(function (text) {
+    els.source.value = text;
+    applyText(text, {
+      toast: true,
+      persist: true,
+      name: b.title,
+      type: 'library',
+      position: 0
+    });
+  }).catch(function (err) {
+    hideLoading();
+    showToast(err.message || 'Could not load book');
+  });
+}
+
+function openDriveBook(f) {
+  showLoading('Downloading from Drive…', 0.05);
+  FocusLibrary.downloadDriveFile(f).then(function (text) {
+    if (typeof text !== 'string') text = String(text || '');
+    els.source.value = text;
+    applyText(text, {
+      toast: true,
+      persist: true,
+      name: f.name,
+      type: 'drive',
+      position: 0,
+      driveFileId: f.id
+    });
+  }).catch(function (err) {
+    hideLoading();
+    if (err && err.code === 401) showToast('Reconnect Google Drive');
+    else showToast(err.message || 'Download failed');
+  });
+}
+
+function refreshLibraryPanel() {
+  if (typeof FocusLibrary === 'undefined') return;
+  var folderInput = document.getElementById('libraryFolderInput');
+  if (folderInput && !folderInput.value) folderInput.value = FocusLibrary.folderName();
+
+  var pubPromise = FocusLibrary.loadPublicManifest().then(function (m) {
+    return m.books || [];
+  }).catch(function () { return []; });
+
+  var drivePromise = Promise.resolve({ files: null, msg: '' });
+  if (typeof FocusSync !== 'undefined' && FocusSync.getStatus().connected) {
+    drivePromise = FocusLibrary.findLibraryFolder().then(function (folder) {
+      if (!folder) {
+        return { files: [], msg: 'No folder named “' + FocusLibrary.folderName() + '” found in Drive. Create it and add .txt/.pdf files.' };
+      }
+      return FocusLibrary.listFolderFiles(folder.id).then(function (files) {
+        return {
+          files: files,
+          msg: files.length ? ('Folder “' + folder.name + '” · ' + files.length + ' books') : ('Folder “' + folder.name + '” is empty — add .txt or .pdf files.')
+        };
+      });
+    }).catch(function (err) {
+      return { files: [], msg: err.message || 'Could not list Drive folder' };
+    });
+  } else if (typeof FocusSync !== 'undefined' && !FocusSync.isConfigured()) {
+    drivePromise = Promise.resolve({
+      files: [],
+      msg: 'Connect Google Drive (when sync is ready) to browse your Focus Reader Books folder. Public domain titles below work now.'
+    });
+  } else {
+    drivePromise = Promise.resolve({
+      files: [],
+      msg: 'Connect Google Drive to see your books'
+    });
+  }
+
+  Promise.all([pubPromise, drivePromise]).then(function (pair) {
+    renderLibraryLists(pair[0], pair[1].files, pair[1].msg);
+  });
+}
+
+function wireLibraryUi() {
+  if (typeof FocusLibrary === 'undefined') return;
+  var btn = document.getElementById('btnLibraryRefresh');
+  var folderInput = document.getElementById('libraryFolderInput');
+  if (btn) btn.addEventListener('click', refreshLibraryPanel);
+  if (folderInput) {
+    folderInput.value = FocusLibrary.folderName();
+    folderInput.addEventListener('change', function () {
+      FocusLibrary.setFolderName(folderInput.value);
+      refreshLibraryPanel();
+    });
+  }
+  refreshLibraryPanel();
+  if (typeof FocusSync !== 'undefined') {
+    FocusSync.onStatus(function () { refreshLibraryPanel(); });
+  }
+}
+
+wireLibraryUi();
+
 
 resumeMostRecentOnStartup().catch(function (err) {
   console.error(err);

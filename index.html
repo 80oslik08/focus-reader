@@ -48,6 +48,13 @@
             </div>
           </div>
           <div class="placeholder" id="placeholder">Paste or import text, then press Play</div>
+          <div class="loading-overlay" id="loadingOverlay" hidden>
+            <div class="loading-card">
+              <div class="loading-spinner" aria-hidden="true"></div>
+              <p id="loadingText">Loading book…</p>
+              <div class="loading-bar"><div class="loading-bar-fill" id="loadingBarFill"></div></div>
+            </div>
+          </div>
           <p class="touch-hint" id="touchHint">Tap · swipe ←→ skip · swipe ↕ speed</p>
         </div>
         <div class="progress-block">
@@ -90,6 +97,29 @@
     </div>
 
     <div class="below-reader" id="belowReader">
+
+      <details class="panel accordion library-panel" id="panelLibrary" open>
+        <summary class="accordion-summary">Library</summary>
+        <div class="accordion-body">
+          <div class="panel-actions">
+            <button type="button" class="btn btn-touch" id="btnLibraryRefresh">Refresh</button>
+          </div>
+          <div class="session-custom">
+            <label for="libraryFolderInput">Drive folder</label>
+            <input type="text" id="libraryFolderInput" maxlength="80" />
+          </div>
+          <p class="sync-meta" id="libraryStatus">Loading…</p>
+          <h3 class="library-section-title">Public domain</h3>
+          <ul class="library-list" id="libraryPublicList"></ul>
+          <h3 class="library-section-title">Google Drive</h3>
+          <ul class="library-list" id="libraryDriveList"></ul>
+          <p class="orp-note" id="libraryHelp">
+            Put .txt / .md / .pdf files in a Drive folder named <strong>Focus Reader Books</strong>,
+            then Connect under Cloud sync and tap Refresh.
+          </p>
+        </div>
+      </details>
+
       <details class="panel accordion timer-panel" id="panelTimer">
         <summary class="accordion-summary">Timer</summary>
         <div class="accordion-body">
@@ -244,6 +274,7 @@
   <script src="orp.js"></script>
   <script src="recent-store.js"></script>
   <script src="sync.js"></script>
+  <script src="library.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
