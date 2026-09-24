@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#0b0d12" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Focus" />
+  <title>Focus Reader</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="styles.css" />
+  <script src="config.js"></script>
+  <script src="lib/pdf.min.js"></script>
+  <script src="lib/pdf-worker-blob.js"></script>
+</head>
+<body>
+  <div class="app" id="app">
+    <header class="header">
+      <div class="brand">
+        <h1>Focus Reader</h1>
+        <p class="tagline">ORP RSVP · phone &amp; PC · optional Drive sync</p>
+      </div>
+      <div class="header-actions">
+        <button type="button" class="btn btn-ghost btn-icon" id="btnFocus" title="Focus mode (F)" aria-pressed="false">
+          Focus
+        </button>
+        <div class="wpm-badge" aria-live="polite">
+          <span class="value" id="wpmDisplay">300</span>
+          <span class="label">WPM</span>
+        </div>
+      </div>
+    </header>
+
+    <div class="reader-block">
+      <section class="stage-wrap" aria-label="Reading stage" id="stageWrap">
+        <div class="stage" id="stage" tabindex="0" role="application" aria-label="Reader. Tap play/pause. Swipe to skip or change speed.">
+          <div class="ticks" aria-hidden="true"><span class="notch"></span></div>
+          <div class="word-row" id="wordRow">
+            <div class="word-anchor" id="wordAnchor">
+              <span class="word-before" id="wordBefore"></span>
+              <span class="word-orp" id="wordOrp"></span>
+              <span class="word-after" id="wordAfter"></span>
+            </div>
+          </div>
+          <div class="placeholder" id="placeholder">Paste or import text, then press Play</div>
+          <p class="touch-hint" id="touchHint">Tap · swipe ←→ skip · swipe ↕ speed</p>
+        </div>
+        <div class="progress-block">
+          <div class="progress-meta">
+            <span id="progressLabel">0 / 0</span>
+            <span id="statusLabel">Ready</span>
+          </div>
+          <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progressBar">
+            <div class="progress-fill" id="progressFill"></div>
+          </div>
+        </div>
+        <div class="session-banner" id="sessionBanner" hidden>
+          <strong>Session complete</strong>
+          <span>Your reading session timer finished. Press Play to continue.</span>
+        </div>
+      </section>
+
+      <div class="controls controls-sticky" id="controls">
+        <button type="button" class="btn btn-ghost btn-touch" id="btnSkipBack" title="Back 5 words (←)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 18V6l-8.5 6L11 18zm.5-6 8.5 6V6l-8.5 6z"/></svg>
+          −5
+        </button>
+        <button type="button" class="btn btn-primary btn-play btn-touch" id="btnPlay" title="Play / Pause (Space)">
+          <svg id="iconPlay" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+          <svg id="iconPause" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+          <span id="playLabel">Play</span>
+        </button>
+        <button type="button" class="btn btn-ghost btn-touch" id="btnSkipFwd" title="Forward 5 words (→)">
+          +5
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 6v12l8.5-6L13 6zM3 6v12l8.5-6L3 6z"/></svg>
+        </button>
+        <button type="button" class="btn btn-touch" id="btnRestart" title="Restart">Restart</button>
+
+        <div class="speed-panel">
+          <label for="wpmRange">Speed</label>
+          <input type="range" id="wpmRange" min="100" max="1000" step="5" value="300" />
+          <input type="number" id="wpmInput" min="100" max="1000" step="5" value="300" inputmode="numeric" />
+        </div>
+      </div>
+    </div>
+
+    <div class="below-reader" id="belowReader">
+      <details class="panel accordion timer-panel" id="panelTimer">
+        <summary class="accordion-summary">Timer</summary>
+        <div class="accordion-body">
+          <div class="timer-stats">
+            <div class="timer-stat">
+              <span class="timer-stat-label">Elapsed</span>
+              <span class="timer-stat-value" id="elapsedDisplay">0:00</span>
+            </div>
+            <div class="timer-stat">
+              <span class="timer-stat-label">Remaining</span>
+              <span class="timer-stat-value" id="remainingDisplay">—</span>
+            </div>
+            <div class="timer-stat">
+              <span class="timer-stat-label">Total est.</span>
+              <span class="timer-stat-value" id="totalEstDisplay">—</span>
+            </div>
+            <div class="timer-stat">
+              <span class="timer-stat-label">Words read</span>
+              <span class="timer-stat-value" id="wordsReadDisplay">0</span>
+            </div>
+            <div class="timer-stat">
+              <span class="timer-stat-label">Avg WPM</span>
+              <span class="timer-stat-value" id="avgWpmDisplay">—</span>
+            </div>
+          </div>
+
+          <div class="session-block">
+            <div class="session-header">
+              <span class="session-title">Session countdown</span>
+              <span class="session-countdown" id="sessionCountdown">Off</span>
+            </div>
+            <div class="session-presets" id="sessionPresets">
+              <button type="button" class="btn btn-chip" data-min="5">5m</button>
+              <button type="button" class="btn btn-chip" data-min="10">10m</button>
+              <button type="button" class="btn btn-chip" data-min="15">15m</button>
+              <button type="button" class="btn btn-chip" data-min="20">20m</button>
+              <button type="button" class="btn btn-chip" data-min="30">30m</button>
+            </div>
+            <div class="session-custom">
+              <label for="sessionCustomMin">Custom (min)</label>
+              <input type="number" id="sessionCustomMin" min="0.05" max="600" step="0.05" value="15" inputmode="decimal" />
+              <button type="button" class="btn btn-touch" id="btnSessionStart">Start</button>
+              <button type="button" class="btn btn-ghost btn-touch" id="btnSessionReset">Reset</button>
+              <button type="button" class="btn btn-ghost btn-touch" id="btnSessionOff">Off</button>
+            </div>
+            <label class="beep-toggle">
+              <input type="checkbox" id="beepToggle" checked />
+              Soft beep when session ends
+            </label>
+          </div>
+        </div>
+      </details>
+
+      <details class="panel accordion recent-panel" id="panelRecent">
+        <summary class="accordion-summary">
+          Recent files
+          <span class="summary-actions" id="recentSummaryActions">
+            <button type="button" class="btn btn-ghost btn-tiny" id="btnClearRecent">Clear all</button>
+          </span>
+        </summary>
+        <div class="accordion-body" id="recentBody">
+          <p class="recent-empty" id="recentEmpty">No recent texts yet — paste, import, or load the sample.</p>
+          <ul class="recent-list" id="recentList"></ul>
+        </div>
+      </details>
+
+      <details class="panel accordion sync-panel" id="panelSync">
+        <summary class="accordion-summary">Cloud sync</summary>
+        <div class="accordion-body">
+          <p class="sync-status" id="syncStatusLine">Checking…</p>
+          <p class="sync-meta" id="syncMetaLine"></p>
+          <div class="panel-actions sync-actions">
+            <button type="button" class="btn btn-touch" id="btnSyncConnect">Connect Google Drive</button>
+            <button type="button" class="btn btn-touch" id="btnSyncNow" hidden>Sync now</button>
+            <button type="button" class="btn btn-ghost btn-touch" id="btnSyncDisconnect" hidden>Disconnect</button>
+          </div>
+          <div class="session-custom sync-device">
+            <label for="deviceNameInput">Device name</label>
+            <input type="text" id="deviceNameInput" maxlength="40" autocomplete="off" />
+          </div>
+          <p class="orp-note" id="syncHelp">
+            Sync uses your private Google Drive app folder only (no access to other files).
+            Set <code>googleClientId</code> in <code>config.js</code> to enable.
+          </p>
+        </div>
+      </details>
+
+      <div class="panels">
+        <details class="panel accordion" id="panelText" open>
+          <summary class="accordion-summary">Text</summary>
+          <div class="accordion-body">
+            <textarea id="source" placeholder="Paste an article, notes, or any prose here…" spellcheck="true"></textarea>
+            <div class="panel-actions">
+              <button type="button" class="btn btn-touch" id="btnLoadSample">Load sample</button>
+              <button type="button" class="btn btn-touch" id="btnApply">Apply text</button>
+              <button type="button" class="btn btn-touch" id="btnClear">Clear</button>
+            </div>
+            <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Import file">
+              <strong>Drop a file</strong> or tap to import
+              <div class="hint">.txt · .md · .pdf — works fully offline</div>
+            </div>
+            <input type="file" id="fileInput" class="file-input"
+              accept=".txt,.md,.pdf,text/plain,text/markdown,text/*,application/pdf,application/octet-stream" />
+          </div>
+        </details>
+
+        <details class="panel accordion" id="panelOrp">
+          <summary class="accordion-summary">ORP focus table</summary>
+          <div class="accordion-body">
+            <table class="orp-table" id="orpTable">
+              <thead>
+                <tr>
+                  <th>Letters</th>
+                  <th>Focus #</th>
+                  <th>Example</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>1</td><td>1</td><td class="example"><span class="focus">a</span></td></tr>
+                <tr><td>2</td><td>2</td><td class="example">t<span class="focus">o</span></td></tr>
+                <tr><td>3–5</td><td>2</td><td class="example">t<span class="focus">h</span>e · r<span class="focus">e</span>ad</td></tr>
+                <tr><td>6–9</td><td>3</td><td class="example">re<span class="focus">a</span>ding</td></tr>
+                <tr><td>10–13</td><td>4</td><td class="example">rec<span class="focus">o</span>gnition</td></tr>
+                <tr><td>14+</td><td>5</td><td class="example">anti<span class="focus">d</span>isestablishmentarianism</td></tr>
+              </tbody>
+            </table>
+            <p class="orp-note">
+              Optimal Recognition Point (ORP) aligns slightly left of center (~42%).
+              Letters/digits count toward length (Unicode). Fully offline — no internet.
+            </p>
+            <div class="kbd-row" aria-label="Keyboard and touch shortcuts">
+              <span class="kbd"><kbd>Space</kbd> / tap play</span>
+              <span class="kbd"><kbd>←</kbd><kbd>→</kbd> / swipe ±5</span>
+              <span class="kbd"><kbd>↑</kbd><kbd>↓</kbd> / swipe WPM</span>
+              <span class="kbd"><kbd>F</kbd> focus mode</span>
+            </div>
+          </div>
+        </details>
+      </div>
+    </div>
+
+    <p class="footer-note">Classic Spritz-style ORP RSVP · offline · US20140016867A1 TABLE I</p>
+  </div>
+
+  <div class="status-toast" id="toast" role="status"></div>
+
+  <div class="update-toast" id="updateToast" hidden>
+    <span>Update available</span>
+    <button type="button" class="btn btn-tiny" id="btnUpdateReload">Reload</button>
+  </div>
+
+  <script src="orp.js"></script>
+  <script src="recent-store.js"></script>
+  <script src="sync.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

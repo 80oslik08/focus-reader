@@ -1,0 +1,1578 @@
+/**
+ * Focus Reader — Spritz-style ORP RSVP (classic script, offline)
+ * Timer panel + Recent Files (IndexedDB)
+ */
+(function () {
+'use strict';
+
+var alphaLength = ORP.alphaLength;
+var splitAtOrp = ORP.splitAtOrp;
+var tokenize = ORP.tokenize;
+var displayDurationMs = ORP.displayDurationMs;
+var estimateRemainingMs = ORP.estimateRemainingMs;
+var ORP_TABLE = ORP.ORP_TABLE;
+
+var LS_SESSION_MIN = 'focusReader.sessionMinutes';
+var LS_BEEP = 'focusReader.beepEnabled';
+var SAVE_THROTTLE_MS = 2000;
+
+var SAMPLE_TEXT = 'Speed reading with RSVP presents one word at a time, aligned to an Optimal Recognition Point. Your eyes stay fixed while meaning flows forward. Short words flash briefly; longer words linger a little longer. After commas you pause; after full stops you rest longer still.\n\nPractice at a comfortable pace first. Three hundred words per minute is a solid default. Raise the speed when the text feels easy. Focus on comprehension, not only raw throughput.';
+
+var els = {
+  source: document.getElementById('source'),
+  wordBefore: document.getElementById('wordBefore'),
+  wordOrp: document.getElementById('wordOrp'),
+  wordAfter: document.getElementById('wordAfter'),
+  placeholder: document.getElementById('placeholder'),
+  progressLabel: document.getElementById('progressLabel'),
+  statusLabel: document.getElementById('statusLabel'),
+  progressFill: document.getElementById('progressFill'),
+  progressBar: document.getElementById('progressBar'),
+  wpmRange: document.getElementById('wpmRange'),
+  wpmInput: document.getElementById('wpmInput'),
+  wpmDisplay: document.getElementById('wpmDisplay'),
+  btnPlay: document.getElementById('btnPlay'),
+  playLabel: document.getElementById('playLabel'),
+  iconPlay: document.getElementById('iconPlay'),
+  iconPause: document.getElementById('iconPause'),
+  btnRestart: document.getElementById('btnRestart'),
+  btnSkipBack: document.getElementById('btnSkipBack'),
+  btnSkipFwd: document.getElementById('btnSkipFwd'),
+  btnLoadSample: document.getElementById('btnLoadSample'),
+  btnApply: document.getElementById('btnApply'),
+  btnClear: document.getElementById('btnClear'),
+  dropzone: document.getElementById('dropzone'),
+  fileInput: document.getElementById('fileInput'),
+  toast: document.getElementById('toast'),
+  elapsedDisplay: document.getElementById('elapsedDisplay'),
+  remainingDisplay: document.getElementById('remainingDisplay'),
+  totalEstDisplay: document.getElementById('totalEstDisplay'),
+  wordsReadDisplay: document.getElementById('wordsReadDisplay'),
+  avgWpmDisplay: document.getElementById('avgWpmDisplay'),
+  sessionCountdown: document.getElementById('sessionCountdown'),
+  sessionPresets: document.getElementById('sessionPresets'),
+  sessionCustomMin: document.getElementById('sessionCustomMin'),
+  btnSessionStart: document.getElementById('btnSessionStart'),
+  btnSessionReset: document.getElementById('btnSessionReset'),
+  btnSessionOff: document.getElementById('btnSessionOff'),
+  beepToggle: document.getElementById('beepToggle'),
+  sessionBanner: document.getElementById('sessionBanner'),
+  recentList: document.getElementById('recentList'),
+  recentEmpty: document.getElementById('recentEmpty'),
+  btnClearRecent: document.getElementById('btnClearRecent'),
+  recentToggle: document.getElementById('recentToggle'),
+  recentBody: document.getElementById('recentBody'),
+  stage: document.getElementById('stage'),
+  stageWrap: document.getElementById('stageWrap'),
+  wordRow: document.getElementById('wordRow'),
+  wordAnchor: document.getElementById('wordAnchor'),
+  btnFocus: document.getElementById('btnFocus'),
+  belowReader: document.getElementById('belowReader'),
+  touchHint: document.getElementById('touchHint')
+};
+
+var state = {
+  tokens: [],
+  wordIndices: [],
+  index: 0,
+  playing: false,
+  wpm: 300,
+  timer: null,
+  sentenceWordCount: 0,
+  // reading timer
+  elapsedMs: 0,
+  playStartedAt: null,
+  wordsReadSession: 0,
+  uiTick: null,
+  // session countdown
+  sessionActive: false,
+  sessionDurationMs: 15 * 60 * 1000,
+  sessionRemainingMs: 0,
+  sessionTickAt: null,
+  beepEnabled: true,
+  // recent
+  currentDocId: null,
+  currentDocName: null,
+  currentDocType: null,
+  saveTimer: null,
+  skipRecentSave: false,
+  focusMode: false,
+  wakeLock: null,
+  baseWordFontPx: null
+};
+
+function clampWpm(v) {
+  var n = Math.round(Number(v) || 300);
+  return Math.min(1000, Math.max(100, n));
+}
+
+function showToast(msg) {
+  els.toast.textContent = msg;
+  els.toast.classList.add('show');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(function () { els.toast.classList.remove('show'); }, 2600);
+}
+
+function formatDuration(ms) {
+  if (ms == null || !isFinite(ms) || ms < 0) return '—';
+  var totalSec = Math.round(ms / 1000);
+  var h = Math.floor(totalSec / 3600);
+  var m = Math.floor((totalSec % 3600) / 60);
+  var s = totalSec % 60;
+  if (h > 0) {
+    return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+  return m + ':' + String(s).padStart(2, '0');
+}
+
+function formatDateTime(ts) {
+  try {
+    var d = new Date(ts);
+    return d.toLocaleString(undefined, {
+      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+  } catch (e) {
+    return '';
+  }
+}
+
+function liveElapsedMs() {
+  var ms = state.elapsedMs;
+  if (state.playing && state.playStartedAt != null) {
+    ms += Date.now() - state.playStartedAt;
+  }
+  return ms;
+}
+
+function liveSessionRemainingMs() {
+  if (!state.sessionActive) return null;
+  var rem = state.sessionRemainingMs;
+  if (state.playing && state.sessionTickAt != null) {
+    rem -= Date.now() - state.sessionTickAt;
+  }
+  return Math.max(0, rem);
+}
+
+function setWpm(v, syncInputs) {
+  if (syncInputs === undefined) syncInputs = true;
+  state.wpm = clampWpm(v);
+  els.wpmDisplay.textContent = String(state.wpm);
+  if (syncInputs) {
+    els.wpmRange.value = String(state.wpm);
+    els.wpmInput.value = String(state.wpm);
+  }
+  updateTimerDisplays();
+  scheduleSaveProgress(true);
+}
+
+function rebuildWordIndex() {
+  state.wordIndices = [];
+  state.tokens.forEach(function (t, i) {
+    if (t.type === 'word') state.wordIndices.push(i);
+  });
+}
+
+function totalWords() {
+  return state.wordIndices.length;
+}
+
+function currentToken() {
+  if (!state.wordIndices.length) return null;
+  var ti = state.wordIndices[state.index];
+  return state.tokens[ti] || null;
+}
+
+function measureTextWidth(text, font) {
+  if (!measureTextWidth.canvas) measureTextWidth.canvas = document.createElement('canvas');
+  var ctx = measureTextWidth.canvas.getContext('2d');
+  ctx.font = font;
+  return ctx.measureText(text || '').width;
+}
+
+function fitWordToStage(before, orp, after) {
+  var row = els.wordRow || document.getElementById('wordRow');
+  var stage = els.stage || document.getElementById('stage');
+  if (!row || !stage) return;
+  row.style.fontSize = '';
+  var cs = getComputedStyle(row);
+  var base = parseFloat(cs.fontSize) || 24;
+  state.baseWordFontPx = base;
+  var fontWeight = cs.fontWeight || '500';
+  var fontFamily = cs.fontFamily || 'sans-serif';
+  var pad = 16;
+  var stageW = stage.clientWidth || 300;
+  var leftBudget = stageW * 0.42 - pad;
+  var rightBudget = stageW * 0.58 - pad;
+  var fs = base;
+  var minFs = 11;
+  while (fs >= minFs) {
+    var font = fontWeight + ' ' + fs + 'px ' + fontFamily;
+    var bw = measureTextWidth(before, font);
+    var ow = measureTextWidth(orp, font);
+    var aw = measureTextWidth(after, font);
+    if (bw <= leftBudget && (ow + aw) <= rightBudget) break;
+    fs -= 0.5;
+  }
+  row.style.fontSize = fs + 'px';
+}
+
+function renderWord(word) {
+  if (!word) {
+    els.wordBefore.textContent = '';
+    els.wordOrp.textContent = '';
+    els.wordAfter.textContent = '';
+    els.placeholder.classList.remove('hidden');
+    if (els.wordRow) els.wordRow.style.fontSize = '';
+    return;
+  }
+  els.placeholder.classList.add('hidden');
+  var parts = splitAtOrp(word);
+  els.wordBefore.textContent = parts.before;
+  els.wordOrp.textContent = parts.orp;
+  els.wordAfter.textContent = parts.after;
+  fitWordToStage(parts.before, parts.orp, parts.after);
+}
+
+function updateProgress() {
+  var total = totalWords();
+  var cur = total ? state.index + 1 : 0;
+  els.progressLabel.textContent = cur + ' / ' + total;
+  var fill = total ? ((state.index + 1) / total) * 100 : 0;
+  els.progressFill.style.width = fill + '%';
+  els.progressBar.setAttribute('aria-valuenow', String(Math.round(fill)));
+  updateTimerDisplays();
+}
+
+function updateTimerDisplays() {
+  if (!els.elapsedDisplay) return;
+  els.elapsedDisplay.textContent = formatDuration(liveElapsedMs());
+
+  var total = totalWords();
+  if (!total) {
+    els.remainingDisplay.textContent = '—';
+    els.totalEstDisplay.textContent = '—';
+  } else {
+    var rem = estimateRemainingMs(state.tokens, state.wordIndices, state.index, state.wpm);
+    var tot = estimateRemainingMs(state.tokens, state.wordIndices, 0, state.wpm);
+    els.remainingDisplay.textContent = formatDuration(rem);
+    els.totalEstDisplay.textContent = formatDuration(tot);
+  }
+
+  els.wordsReadDisplay.textContent = String(state.wordsReadSession);
+  var elapsedMin = liveElapsedMs() / 60000;
+  if (elapsedMin > 0.01 && state.wordsReadSession > 0) {
+    els.avgWpmDisplay.textContent = String(Math.round(state.wordsReadSession / elapsedMin));
+  } else {
+    els.avgWpmDisplay.textContent = '—';
+  }
+
+  // session countdown UI
+  if (!state.sessionActive) {
+    els.sessionCountdown.textContent = 'Off';
+    els.sessionCountdown.classList.remove('warn', 'done');
+  } else {
+    var srem = liveSessionRemainingMs();
+    els.sessionCountdown.textContent = formatDuration(srem);
+    els.sessionCountdown.classList.toggle('warn', srem > 0 && srem <= 60000);
+    els.sessionCountdown.classList.toggle('done', srem <= 0);
+  }
+}
+
+function setPlayingUI(playing) {
+  state.playing = playing;
+  els.playLabel.textContent = playing ? 'Pause' : 'Play';
+  els.iconPlay.hidden = playing;
+  els.iconPause.hidden = !playing;
+  if (playing) {
+    els.statusLabel.textContent = 'Reading';
+  } else if (totalWords()) {
+    els.statusLabel.textContent = 'Paused';
+  } else {
+    els.statusLabel.textContent = 'Ready';
+  }
+}
+
+function stopWordTimer() {
+  if (state.timer != null) {
+    clearTimeout(state.timer);
+    state.timer = null;
+  }
+}
+
+function endsSentence(word) {
+  return /[.!?]$/.test(word);
+}
+
+function computeSentenceCountAt(wordIndex) {
+  var count = 0;
+  for (var i = wordIndex; i >= 0; i--) {
+    var ti = state.wordIndices[i];
+    var w = state.tokens[ti].text;
+    count++;
+    if (i < wordIndex && endsSentence(w)) {
+      count--;
+      break;
+    }
+    if (i > 0) {
+      var prevTi = state.wordIndices[i - 1];
+      for (var j = prevTi + 1; j < ti; j++) {
+        if (state.tokens[j].type === 'para') return count;
+      }
+    }
+  }
+  return count;
+}
+
+function flushPlayClock() {
+  if (state.playStartedAt != null) {
+    state.elapsedMs += Date.now() - state.playStartedAt;
+    state.playStartedAt = null;
+  }
+  if (state.sessionActive && state.sessionTickAt != null) {
+    state.sessionRemainingMs = Math.max(0, state.sessionRemainingMs - (Date.now() - state.sessionTickAt));
+    state.sessionTickAt = null;
+  }
+}
+
+function startPlayClocks() {
+  state.playStartedAt = Date.now();
+  if (state.sessionActive) state.sessionTickAt = Date.now();
+}
+
+function playSoftBeep() {
+  if (!state.beepEnabled) return;
+  try {
+    var Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    var ctx = new Ctx();
+    var osc = ctx.createOscillator();
+    var gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = 660;
+    gain.gain.value = 0.0001;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    var now = ctx.currentTime;
+    gain.gain.exponentialRampToValueAtTime(0.08, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+    osc.start(now);
+    osc.stop(now + 0.4);
+    setTimeout(function () { ctx.close(); }, 500);
+  } catch (e) { /* ignore */ }
+}
+
+function onSessionComplete() {
+  flushPlayClock();
+  state.sessionRemainingMs = 0;
+  stopWordTimer();
+  setPlayingUI(false);
+  var token = currentToken();
+  if (token) renderWord(token.text);
+  updateProgress();
+  if (els.sessionBanner) els.sessionBanner.hidden = false;
+  playSoftBeep();
+  showToast('Session complete');
+  scheduleSaveProgress(true);
+}
+
+function checkSessionDuringTick() {
+  if (!state.sessionActive || !state.playing) return;
+  var rem = liveSessionRemainingMs();
+  if (rem <= 0) onSessionComplete();
+}
+
+function scheduleNext() {
+  stopWordTimer();
+  if (!state.playing) return;
+  checkSessionDuringTick();
+  if (!state.playing) return;
+
+  var total = totalWords();
+  if (!total || state.index >= total) {
+    pause();
+    els.statusLabel.textContent = 'Finished';
+    showToast('Finished');
+    return;
+  }
+
+  var token = currentToken();
+  renderWord(token.text);
+  updateProgress();
+
+  var sentenceCount = state.sentenceWordCount;
+  if (endsSentence(token.text)) {
+    sentenceCount = computeSentenceCountAt(state.index);
+  }
+
+  var ms = displayDurationMs(token, state.wpm, sentenceCount);
+
+  if (endsSentence(token.text)) {
+    state.sentenceWordCount = 0;
+  } else {
+    state.sentenceWordCount += 1;
+  }
+
+  var extraPara = 0;
+  if (state.index < total - 1) {
+    var curTi = state.wordIndices[state.index];
+    var nextTi = state.wordIndices[state.index + 1];
+    for (var j = curTi + 1; j < nextTi; j++) {
+      if (state.tokens[j].type === 'para') {
+        extraPara = (60000 / state.wpm) * 2.5;
+        break;
+      }
+    }
+  }
+
+  // Cap wait if session ends sooner
+  if (state.sessionActive) {
+    var srem = liveSessionRemainingMs();
+    if (srem != null && srem < ms + extraPara) {
+      state.timer = setTimeout(function () {
+        onSessionComplete();
+      }, Math.max(0, srem));
+      return;
+    }
+  }
+
+  state.timer = setTimeout(function () {
+    state.index += 1;
+    state.wordsReadSession += 1;
+    scheduleSaveProgress(false);
+    if (state.index >= total) {
+      renderWord(null);
+      updateProgress();
+      pause();
+      els.placeholder.textContent = 'Done — press Restart or load more text';
+      els.placeholder.classList.remove('hidden');
+      els.statusLabel.textContent = 'Finished';
+      showToast('Finished');
+      scheduleSaveProgress(true);
+      return;
+    }
+    scheduleNext();
+  }, ms + extraPara);
+}
+
+function play() {
+  if (!totalWords()) {
+    applyText(els.source.value, { toast: false, persist: true, nameHint: null });
+    if (!totalWords()) {
+      showToast('Add some text first');
+      return;
+    }
+  }
+  if (state.index >= totalWords()) {
+    state.index = 0;
+    state.sentenceWordCount = 0;
+  }
+  if (els.sessionBanner) els.sessionBanner.hidden = true;
+  startPlayClocks();
+  setPlayingUI(true);
+  requestWakeLock();
+  ensureUiTick();
+  scheduleNext();
+}
+
+function pause() {
+  stopWordTimer();
+  flushPlayClock();
+  setPlayingUI(false);
+  releaseWakeLock();
+  var token = currentToken();
+  if (token) renderWord(token.text);
+  updateProgress();
+  scheduleSaveProgress(true);
+}
+
+function togglePlay() {
+  if (state.playing) pause();
+  else play();
+}
+
+function resetElapsedTimers() {
+  flushPlayClock();
+  state.elapsedMs = 0;
+  state.playStartedAt = null;
+  state.wordsReadSession = 0;
+  updateTimerDisplays();
+}
+
+function restart() {
+  stopWordTimer();
+  flushPlayClock();
+  state.index = 0;
+  state.sentenceWordCount = 0;
+  resetElapsedTimers();
+  if (els.sessionBanner) els.sessionBanner.hidden = true;
+  if (totalWords()) {
+    renderWord(state.tokens[state.wordIndices[0]].text);
+    els.statusLabel.textContent = 'Ready';
+  } else {
+    renderWord(null);
+    els.placeholder.textContent = 'Paste or import text, then press Play';
+    els.statusLabel.textContent = 'Ready';
+  }
+  updateProgress();
+  setPlayingUI(false);
+  scheduleSaveProgress(true);
+}
+
+function skip(delta) {
+  if (!totalWords()) return;
+  var wasPlaying = state.playing;
+  stopWordTimer();
+  flushPlayClock();
+  var prev = state.index;
+  state.index = Math.min(totalWords() - 1, Math.max(0, state.index + delta));
+  if (state.index > prev) state.wordsReadSession += (state.index - prev);
+  state.sentenceWordCount = 0;
+  var token = currentToken();
+  if (token) renderWord(token.text);
+  updateProgress();
+  scheduleSaveProgress(true);
+  if (wasPlaying) {
+    startPlayClocks();
+    setPlayingUI(true);
+    scheduleNext();
+  } else {
+    setPlayingUI(false);
+  }
+}
+
+function pastedNameFromText(text) {
+  var words = (text || '').trim().split(/\s+/).filter(Boolean).slice(0, 5);
+  var head = words.join(' ') || 'Untitled';
+  if (head.length > 48) head = head.slice(0, 45) + '…';
+  var d = new Date();
+  var stamp = d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return 'Pasted text — ' + head + ' (' + stamp + ')';
+}
+
+/**
+ * Load text into reader.
+ * opts: { toast, persist, name, type, position, docId, resumeNotice, resetElapsed }
+ */
+function applyText(text, opts) {
+  opts = opts || {};
+  var doToast = opts.toast !== false;
+  stopWordTimer();
+  flushPlayClock();
+  state.tokens = tokenize(text || '');
+  rebuildWordIndex();
+  var total = totalWords();
+  var pos = opts.position != null ? opts.position : 0;
+  if (pos < 0) pos = 0;
+  if (total && pos >= total) pos = total - 1;
+  state.index = total ? pos : 0;
+  state.sentenceWordCount = 0;
+  setPlayingUI(false);
+
+  if (opts.resetElapsed !== false) resetElapsedTimers();
+
+  if (total) {
+    renderWord(state.tokens[state.wordIndices[state.index]].text);
+    els.statusLabel.textContent = 'Ready';
+    if (doToast && !opts.resumeNotice) showToast(total + ' words loaded');
+  } else {
+    renderWord(null);
+    els.placeholder.textContent = 'Paste or import text, then press Play';
+    els.statusLabel.textContent = 'Ready';
+  }
+  updateProgress();
+
+  if (opts.persist !== false && text && text.trim() && typeof RecentStore !== 'undefined') {
+    var name = opts.name || pastedNameFromText(text);
+    var type = opts.type || 'paste';
+    RecentStore.upsertDocument({
+      name: name,
+      type: type,
+      text: text,
+      wordCount: total,
+      position: state.index,
+      wpm: state.wpm,
+      keepPosition: false
+    }).then(function (doc) {
+      state.currentDocId = doc.id;
+      state.currentDocName = doc.name;
+      state.currentDocType = doc.type;
+      return refreshRecentList();
+    }).catch(function (err) {
+      console.error(err);
+    });
+  } else if (opts.docId) {
+    state.currentDocId = opts.docId;
+    state.currentDocName = opts.name || null;
+    state.currentDocType = opts.type || null;
+  }
+
+  if (opts.resumeNotice && opts.name) {
+    showToast('Resumed: ' + opts.name + ' at word ' + (state.index + 1));
+  }
+}
+
+async function extractPdfText(arrayBuffer) {
+  if (typeof pdfjsLib === 'undefined') throw new Error('pdf.js not loaded');
+  var isHttp = location.protocol === 'http:' || location.protocol === 'https:';
+  if (isHttp) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js';
+  } else if (typeof __PDFJS_WORKER_BLOB_URL__ !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = __PDFJS_WORKER_BLOB_URL__;
+  } else if (!pdfjsLib.GlobalWorkerOptions.workerSrc && typeof __PDFJS_WORKER_BLOB_URL__ !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = __PDFJS_WORKER_BLOB_URL__;
+  }
+  var doc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  var parts = [];
+  for (var i = 1; i <= doc.numPages; i++) {
+    var page = await doc.getPage(i);
+    var content = await page.getTextContent();
+    parts.push(content.items.map(function (it) { return it.str; }).join(' '));
+  }
+  return parts.join('\n\n');
+}
+
+async function loadFile(file) {
+  if (!file) return;
+  var name = file.name;
+  var lower = name.toLowerCase();
+  var type = 'txt';
+  if (lower.endsWith('.pdf')) type = 'pdf';
+  else if (lower.endsWith('.md')) type = 'md';
+  try {
+    var text;
+    if (type === 'pdf' || file.type === 'application/pdf') {
+      showToast('Extracting PDF…');
+      var buf = await file.arrayBuffer();
+      text = await extractPdfText(buf);
+      type = 'pdf';
+    } else {
+      text = await file.text();
+    }
+    text = (text || '').trim();
+    els.source.value = text;
+    applyText(text, { toast: true, persist: true, name: name, type: type, position: 0 });
+  } catch (err) {
+    console.error(err);
+    showToast('Could not read that file');
+  }
+}
+
+function scheduleSaveProgress(force) {
+  if (!state.currentDocId || typeof RecentStore === 'undefined') return;
+  clearTimeout(state.saveTimer);
+  var run = function () {
+    RecentStore.updateProgress(state.currentDocId, {
+      position: state.index,
+      wpm: state.wpm,
+      lastOpened: Date.now()
+    }).then(function () {
+      refreshRecentList();
+    }).catch(function () {});
+  };
+  if (force) run();
+  else state.saveTimer = setTimeout(run, SAVE_THROTTLE_MS);
+}
+
+function estimateLeftLabel(doc) {
+  if (!doc || !doc.text || !doc.wordCount) return '';
+  try {
+    var tokens = tokenize(doc.text);
+    var indices = [];
+    tokens.forEach(function (t, i) { if (t.type === 'word') indices.push(i); });
+    var pos = Math.min(doc.position || 0, Math.max(0, indices.length - 1));
+    var ms = estimateRemainingMs(tokens, indices, pos, state.wpm);
+    return formatDuration(ms) + ' left';
+  } catch (e) {
+    return '';
+  }
+}
+
+function refreshRecentList() {
+  if (!els.recentList || typeof RecentStore === 'undefined') return Promise.resolve();
+  return RecentStore.list().then(function (rows) {
+    els.recentList.innerHTML = '';
+    if (!rows.length) {
+      if (els.recentEmpty) els.recentEmpty.hidden = false;
+      return;
+    }
+    if (els.recentEmpty) els.recentEmpty.hidden = true;
+    rows.forEach(function (doc) {
+      var li = document.createElement('li');
+      li.className = 'recent-item' + (doc.id === state.currentDocId ? ' active' : '');
+      li.setAttribute('data-id', doc.id);
+      var pct = doc.wordCount ? Math.round(((doc.position || 0) + 1) / doc.wordCount * 100) : 0;
+      if (pct > 100) pct = 100;
+      var left = estimateLeftLabel(doc);
+      li.innerHTML =
+        '<button type="button" class="recent-main">' +
+          '<span class="recent-name"></span>' +
+          '<span class="recent-meta"></span>' +
+        '</button>' +
+        '<button type="button" class="recent-remove" title="Remove" aria-label="Remove">×</button>';
+      var nameEl = li.querySelector('.recent-name');
+      nameEl.textContent = doc.name;
+      if (doc.cloudOnly) {
+        var badge = document.createElement('span');
+        badge.className = 'cloud-badge';
+        badge.textContent = '☁';
+        badge.title = 'On Google Drive — tap to download';
+        nameEl.appendChild(badge);
+      }
+      li.querySelector('.recent-meta').textContent =
+        pct + '% · word ' + ((doc.position || 0) + 1) + '/' + (doc.wordCount || 0) +
+        ' · ' + formatDateTime(doc.lastOpened) +
+        (left ? ' · ' + left : '');
+      li.querySelector('.recent-main').addEventListener('click', function () {
+        openRecentDoc(doc.id);
+      });
+      li.querySelector('.recent-remove').addEventListener('click', function (e) {
+        e.stopPropagation();
+        RecentStore.remove(doc.id).then(function () {
+          if (state.currentDocId === doc.id) {
+            state.currentDocId = null;
+          }
+          refreshRecentList();
+          showToast('Removed from recent');
+        });
+      });
+      els.recentList.appendChild(li);
+    });
+  });
+}
+
+function openRecentDoc(id) {
+  RecentStore.get(id).then(function (doc) {
+    if (!doc) return;
+    var ready = Promise.resolve(doc);
+    if (doc.cloudOnly || !doc.text) {
+      showToast('Downloading from Drive…');
+      if (typeof FocusSync !== 'undefined' && FocusSync.syncNow) {
+        ready = FocusSync.syncNow().then(function () {
+          return RecentStore.get(id);
+        });
+      }
+    }
+    ready.then(function (doc2) {
+      if (!doc2 || !doc2.text) {
+        showToast('Could not load book text');
+        return;
+      }
+      els.source.value = doc2.text || '';
+      if (doc2.wpm) setWpm(doc2.wpm);
+      applyText(doc2.text, {
+        toast: false,
+        persist: false,
+        docId: doc2.id,
+        name: doc2.name,
+        type: doc2.type,
+        position: doc2.position || 0,
+        resumeNotice: true,
+        resetElapsed: true
+      });
+      RecentStore.updateProgress(doc2.id, {
+        position: doc2.position || 0,
+        wpm: state.wpm,
+        lastOpened: Date.now()
+      }).then(function () { refreshRecentList(); });
+    });
+  });
+}
+
+function resumeMostRecentOnStartup() {
+  if (typeof RecentStore === 'undefined') return Promise.resolve();
+  return RecentStore.list().then(function (rows) {
+    refreshRecentList();
+    if (!rows.length) return;
+    var doc = rows[0];
+    els.source.value = doc.text || '';
+    if (doc.wpm) setWpm(doc.wpm, true);
+    applyText(doc.text, {
+      toast: false,
+      persist: false,
+      docId: doc.id,
+      name: doc.name,
+      type: doc.type,
+      position: doc.position || 0,
+      resumeNotice: true,
+      resetElapsed: true
+    });
+  });
+}
+
+/* ——— Session timer controls ——— */
+function loadSessionPrefs() {
+  try {
+    var mins = parseFloat(localStorage.getItem(LS_SESSION_MIN));
+    if (isFinite(mins) && mins > 0) {
+      state.sessionDurationMs = mins * 60 * 1000;
+      els.sessionCustomMin.value = String(mins);
+    }
+    var beep = localStorage.getItem(LS_BEEP);
+    if (beep != null) {
+      state.beepEnabled = beep !== '0';
+      els.beepToggle.checked = state.beepEnabled;
+    }
+  } catch (e) { /* file:// private mode etc. */ }
+  highlightPreset();
+}
+
+function saveSessionPrefs() {
+  try {
+    localStorage.setItem(LS_SESSION_MIN, String(state.sessionDurationMs / 60000));
+    localStorage.setItem(LS_BEEP, state.beepEnabled ? '1' : '0');
+  } catch (e) {}
+}
+
+function highlightPreset() {
+  var mins = state.sessionDurationMs / 60000;
+  var chips = els.sessionPresets.querySelectorAll('.btn-chip');
+  chips.forEach(function (btn) {
+    var v = parseFloat(btn.getAttribute('data-min'));
+    btn.classList.toggle('active', Math.abs(v - mins) < 0.001);
+  });
+}
+
+function startSessionCountdown() {
+  var mins = parseFloat(els.sessionCustomMin.value);
+  if (!isFinite(mins) || mins <= 0) mins = 15;
+  state.sessionDurationMs = mins * 60 * 1000;
+  state.sessionRemainingMs = state.sessionDurationMs;
+  state.sessionActive = true;
+  state.sessionTickAt = state.playing ? Date.now() : null;
+  if (els.sessionBanner) els.sessionBanner.hidden = true;
+  saveSessionPrefs();
+  highlightPreset();
+  updateTimerDisplays();
+  showToast('Session ' + mins + ' min started');
+}
+
+function resetSessionCountdown() {
+  if (!state.sessionActive) {
+    startSessionCountdown();
+    return;
+  }
+  state.sessionRemainingMs = state.sessionDurationMs;
+  state.sessionTickAt = state.playing ? Date.now() : null;
+  if (els.sessionBanner) els.sessionBanner.hidden = true;
+  updateTimerDisplays();
+}
+
+function offSessionCountdown() {
+  state.sessionActive = false;
+  state.sessionRemainingMs = 0;
+  state.sessionTickAt = null;
+  if (els.sessionBanner) els.sessionBanner.hidden = true;
+  updateTimerDisplays();
+}
+
+function ensureUiTick() {
+  if (state.uiTick) return;
+  state.uiTick = setInterval(function () {
+    updateTimerDisplays();
+    checkSessionDuringTick();
+    if (!state.playing && !state.sessionActive) {
+      /* keep ticking lightly for display consistency */
+    }
+  }, 250);
+}
+
+
+/* ——— Wake Lock / Focus / Touch ——— */
+function requestWakeLock() {
+  if (!navigator.wakeLock || !navigator.wakeLock.request) return;
+  navigator.wakeLock.request('screen').then(function (lock) {
+    state.wakeLock = lock;
+    lock.addEventListener('release', function () { state.wakeLock = null; });
+  }).catch(function () { state.wakeLock = null; });
+}
+
+function releaseWakeLock() {
+  if (state.wakeLock) {
+    try { state.wakeLock.release(); } catch (e) {}
+    state.wakeLock = null;
+  }
+}
+
+function setFocusMode(on) {
+  state.focusMode = !!on;
+  document.body.classList.toggle('focus-mode', state.focusMode);
+  if (els.btnFocus) {
+    els.btnFocus.setAttribute('aria-pressed', state.focusMode ? 'true' : 'false');
+    els.btnFocus.textContent = state.focusMode ? 'Exit focus' : 'Focus';
+  }
+  if (state.focusMode) {
+    var root = document.documentElement;
+    if (root.requestFullscreen) {
+      root.requestFullscreen().catch(function () {});
+    } else if (root.webkitRequestFullscreen) {
+      try { root.webkitRequestFullscreen(); } catch (e) {}
+    }
+  } else if (document.fullscreenElement || document.webkitFullscreenElement) {
+    if (document.exitFullscreen) document.exitFullscreen().catch(function () {});
+    else if (document.webkitExitFullscreen) {
+      try { document.webkitExitFullscreen(); } catch (e) {}
+    }
+  }
+  // re-fit current word after layout change
+  var token = currentToken();
+  if (token) renderWord(token.text);
+}
+
+function toggleFocusMode() {
+  setFocusMode(!state.focusMode);
+}
+
+function setupAccordionsForViewport() {
+  var narrow = window.matchMedia('(max-width: 720px)').matches;
+  var landscapeShort = window.matchMedia('(max-height: 480px) and (orientation: landscape)').matches;
+  ['panelTimer', 'panelRecent', 'panelSync', 'panelOrp'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (narrow || landscapeShort) el.open = false;
+    else el.open = true;
+  });
+  var text = document.getElementById('panelText');
+  if (text) text.open = true;
+}
+
+function setupTouchGestures() {
+  var stage = els.stage;
+  if (!stage) return;
+  var startX = 0, startY = 0, startT = 0, moved = false, longTimer = null;
+  var suppressClickUntil = 0;
+  var activePointer = null;
+
+  function clearLong() {
+    if (longTimer) { clearTimeout(longTimer); longTimer = null; }
+  }
+
+  function onGestureEnd(x, y, fromTouch) {
+    clearLong();
+    if (fromTouch) suppressClickUntil = Date.now() + 1200;
+    var dx = x - startX;
+    var dy = y - startY;
+    var adx = Math.abs(dx), ady = Math.abs(dy);
+    var dt = Date.now() - startT;
+    if (!moved && adx < 24 && ady < 24 && dt < 700) {
+      togglePlay();
+      return;
+    }
+    if (adx < 40 && ady < 40) return;
+    if (adx > ady) {
+      if (dx < 0) skip(5);
+      else skip(-5);
+    } else {
+      if (dy < 0) setWpm(state.wpm + 25);
+      else setWpm(state.wpm - 25);
+    }
+  }
+
+  stage.addEventListener('pointerdown', function (e) {
+    if (e.button != null && e.button !== 0) return;
+    if (activePointer != null) return;
+    activePointer = e.pointerId;
+    startX = e.clientX;
+    startY = e.clientY;
+    startT = Date.now();
+    moved = false;
+    clearLong();
+    try { stage.setPointerCapture(e.pointerId); } catch (err) {}
+    longTimer = setTimeout(function () {
+      setFocusMode(!state.focusMode);
+      moved = true;
+      showToast(state.focusMode ? 'Focus mode' : 'Focus off');
+    }, 550);
+  });
+
+  stage.addEventListener('pointermove', function (e) {
+    if (activePointer == null || e.pointerId !== activePointer) return;
+    if (Math.abs(e.clientX - startX) > 12 || Math.abs(e.clientY - startY) > 12) {
+      moved = true;
+      clearLong();
+    }
+  });
+
+  stage.addEventListener('pointerup', function (e) {
+    if (activePointer == null || e.pointerId !== activePointer) return;
+    activePointer = null;
+    onGestureEnd(e.clientX, e.clientY, e.pointerType === 'touch');
+  });
+
+  stage.addEventListener('pointercancel', function (e) {
+    if (activePointer == null || e.pointerId !== activePointer) return;
+    activePointer = null;
+    clearLong();
+    if (e.pointerType === 'touch') suppressClickUntil = Date.now() + 1200;
+  });
+
+  stage.addEventListener('touchstart', function (e) {
+    if (window.PointerEvent) return; // modern path
+    if (!e.touches || e.touches.length !== 1) return;
+    var t = e.touches[0];
+    startX = t.clientX; startY = t.clientY; startT = Date.now(); moved = false;
+    clearLong();
+    longTimer = setTimeout(function () {
+      setFocusMode(!state.focusMode); moved = true;
+      showToast(state.focusMode ? 'Focus mode' : 'Focus off');
+    }, 550);
+  }, { passive: true });
+
+  stage.addEventListener('touchmove', function (e) {
+    if (window.PointerEvent) return;
+    if (!e.touches || e.touches.length !== 1) return;
+    var t = e.touches[0];
+    if (Math.abs(t.clientX - startX) > 12 || Math.abs(t.clientY - startY) > 12) {
+      moved = true; clearLong();
+    }
+  }, { passive: true });
+
+  stage.addEventListener('touchend', function (e) {
+    if (window.PointerEvent) return;
+    suppressClickUntil = Date.now() + 1200;
+    var touch = e.changedTouches && e.changedTouches[0];
+    if (!touch) return;
+    try { e.preventDefault(); } catch (err) {}
+    onGestureEnd(touch.clientX, touch.clientY, true);
+  }, { passive: false });
+
+  stage.addEventListener('click', function (e) {
+    if (e.target.closest && e.target.closest('button')) return;
+    if (Date.now() < suppressClickUntil) return;
+    if (Date.now() - startT < 800) return;
+    togglePlay();
+  });
+}
+
+/* ——— Events ——— */
+els.btnPlay.addEventListener('click', togglePlay);
+els.btnRestart.addEventListener('click', restart);
+els.btnSkipBack.addEventListener('click', function () { skip(-5); });
+els.btnSkipFwd.addEventListener('click', function () { skip(5); });
+
+els.btnLoadSample.addEventListener('click', function () {
+  els.source.value = SAMPLE_TEXT;
+  applyText(SAMPLE_TEXT, {
+    toast: true,
+    persist: true,
+    name: 'Sample text',
+    type: 'sample',
+    position: 0
+  });
+});
+
+els.btnApply.addEventListener('click', function () {
+  applyText(els.source.value, { toast: true, persist: true, type: 'paste', position: 0 });
+});
+
+els.btnClear.addEventListener('click', function () {
+  els.source.value = '';
+  stopWordTimer();
+  flushPlayClock();
+  state.tokens = [];
+  state.wordIndices = [];
+  state.index = 0;
+  state.currentDocId = null;
+  state.currentDocName = null;
+  resetElapsedTimers();
+  setPlayingUI(false);
+  renderWord(null);
+  els.placeholder.textContent = 'Paste or import text, then press Play';
+  updateProgress();
+  refreshRecentList();
+});
+
+els.wpmRange.addEventListener('input', function () {
+  setWpm(els.wpmRange.value, false);
+  els.wpmInput.value = String(state.wpm);
+});
+els.wpmInput.addEventListener('change', function () { setWpm(els.wpmInput.value); });
+els.wpmInput.addEventListener('input', function () {
+  var v = Number(els.wpmInput.value);
+  if (!Number.isNaN(v)) {
+    els.wpmDisplay.textContent = String(clampWpm(v));
+    els.wpmRange.value = String(clampWpm(v));
+    state.wpm = clampWpm(v);
+    updateTimerDisplays();
+  }
+});
+
+els.dropzone.addEventListener('click', function () { els.fileInput.click(); });
+els.dropzone.addEventListener('keydown', function (e) {
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    els.fileInput.click();
+  }
+});
+els.fileInput.addEventListener('change', function () {
+  var f = els.fileInput.files && els.fileInput.files[0];
+  loadFile(f);
+  els.fileInput.value = '';
+});
+
+['dragenter', 'dragover'].forEach(function (ev) {
+  els.dropzone.addEventListener(ev, function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    els.dropzone.classList.add('dragover');
+  });
+});
+['dragleave', 'drop'].forEach(function (ev) {
+  els.dropzone.addEventListener(ev, function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    els.dropzone.classList.remove('dragover');
+  });
+});
+els.dropzone.addEventListener('drop', function (e) {
+  var f = e.dataTransfer.files && e.dataTransfer.files[0];
+  loadFile(f);
+});
+
+document.addEventListener('keydown', function (e) {
+  var tag = (e.target && e.target.tagName) || '';
+  if (tag === 'TEXTAREA' || tag === 'INPUT') {
+    if (tag === 'TEXTAREA') return;
+    if (e.code !== 'ArrowUp' && e.code !== 'ArrowDown') return;
+  }
+  if (e.code === 'Space') {
+    e.preventDefault();
+    togglePlay();
+  } else if (e.key === 'f' || e.key === 'F') {
+    e.preventDefault();
+    toggleFocusMode();
+  } else if (e.code === 'ArrowLeft') {
+    e.preventDefault();
+    skip(-5);
+  } else if (e.code === 'ArrowRight') {
+    e.preventDefault();
+    skip(5);
+  } else if (e.code === 'ArrowUp') {
+    e.preventDefault();
+    setWpm(state.wpm + 25);
+  } else if (e.code === 'ArrowDown') {
+    e.preventDefault();
+    setWpm(state.wpm - 25);
+  }
+});
+
+els.sessionPresets.addEventListener('click', function (e) {
+  var btn = e.target.closest('[data-min]');
+  if (!btn) return;
+  var mins = parseFloat(btn.getAttribute('data-min'));
+  els.sessionCustomMin.value = String(mins);
+  state.sessionDurationMs = mins * 60 * 1000;
+  highlightPreset();
+  saveSessionPrefs();
+});
+
+els.btnSessionStart.addEventListener('click', startSessionCountdown);
+els.btnSessionReset.addEventListener('click', resetSessionCountdown);
+els.btnSessionOff.addEventListener('click', offSessionCountdown);
+els.beepToggle.addEventListener('change', function () {
+  state.beepEnabled = !!els.beepToggle.checked;
+  saveSessionPrefs();
+});
+els.sessionCustomMin.addEventListener('change', function () {
+  var mins = parseFloat(els.sessionCustomMin.value);
+  if (isFinite(mins) && mins > 0) {
+    state.sessionDurationMs = mins * 60 * 1000;
+    saveSessionPrefs();
+    highlightPreset();
+  }
+});
+
+if (els.btnClearRecent) {
+  els.btnClearRecent.addEventListener('click', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    RecentStore.clearAll().then(function () {
+      state.currentDocId = null;
+      refreshRecentList();
+      showToast('Recent list cleared');
+    });
+  });
+}
+
+
+window.addEventListener('beforeunload', function () {
+  scheduleSaveProgress(true);
+});
+document.addEventListener('visibilitychange', function () {
+  if (document.visibilityState === 'hidden') scheduleSaveProgress(true);
+});
+
+void ORP_TABLE;
+void alphaLength;
+
+// Test / automation hook
+window.__FOCUS_READER__ = {
+  getState: function () {
+    return {
+      playing: state.playing,
+      index: state.index,
+      total: totalWords(),
+      wpm: state.wpm,
+      elapsedMs: liveElapsedMs(),
+      remainingMs: totalWords()
+        ? estimateRemainingMs(state.tokens, state.wordIndices, state.index, state.wpm)
+        : 0,
+      totalEstMs: totalWords()
+        ? estimateRemainingMs(state.tokens, state.wordIndices, 0, state.wpm)
+        : 0,
+      sessionActive: state.sessionActive,
+      sessionRemainingMs: liveSessionRemainingMs(),
+      wordsReadSession: state.wordsReadSession,
+      currentDocId: state.currentDocId,
+      currentDocName: state.currentDocName,
+      bannerVisible: els.sessionBanner && !els.sessionBanner.hidden
+    };
+  },
+  setSessionMinutes: function (m) {
+    els.sessionCustomMin.value = String(m);
+    state.sessionDurationMs = m * 60 * 1000;
+  },
+  startSession: startSessionCountdown,
+  offSession: offSessionCountdown,
+  play: play,
+  pause: pause,
+  skip: skip,
+  refreshRecent: refreshRecentList,
+  openRecentByName: function (name) {
+    return RecentStore.list().then(function (rows) {
+      var doc = rows.find(function (r) {
+        return r.name === name || (name && r.name && r.name.indexOf(name) !== -1);
+      });
+      if (!doc) throw new Error('recent not found: ' + name);
+      return new Promise(function (resolve) {
+        els.source.value = doc.text || '';
+        if (doc.wpm) setWpm(doc.wpm);
+        applyText(doc.text, {
+          toast: false,
+          persist: false,
+          docId: doc.id,
+          name: doc.name,
+          type: doc.type,
+          position: doc.position || 0,
+          resumeNotice: false,
+          resetElapsed: true
+        });
+        RecentStore.updateProgress(doc.id, {
+          position: state.index,
+          wpm: state.wpm,
+          lastOpened: Date.now()
+        }).then(function () { return refreshRecentList(); }).then(function () { resolve(doc); });
+      });
+    });
+  },
+  setPositionAndSave: function (index) {
+    stopWordTimer();
+    flushPlayClock();
+    setPlayingUI(false);
+    state.index = Math.max(0, Math.min(totalWords() - 1, index));
+    state.sentenceWordCount = 0;
+    var token = currentToken();
+    if (token) renderWord(token.text);
+    updateProgress();
+    return RecentStore.updateProgress(state.currentDocId, {
+      position: state.index,
+      wpm: state.wpm,
+      lastOpened: Date.now()
+    }).then(function () { return refreshRecentList(); });
+  },
+  saveNow: function () {
+    if (!state.currentDocId) return Promise.resolve();
+    return RecentStore.updateProgress(state.currentDocId, {
+      position: state.index,
+      wpm: state.wpm,
+      lastOpened: Date.now()
+    });
+  },
+  toggleFocusMode: toggleFocusMode,
+  setFocusMode: setFocusMode,
+  renderWord: renderWord,
+  fitCheck: function (word) {
+    renderWord(word);
+    var row = els.wordRow;
+    var stage = els.stage;
+    var before = els.wordBefore.getBoundingClientRect();
+    var after = els.wordAfter.getBoundingClientRect();
+    var orp = els.wordOrp.getBoundingClientRect();
+    var stageBox = stage.getBoundingClientRect();
+    return {
+      fontSize: row.style.fontSize || getComputedStyle(row).fontSize,
+      overflowLeft: before.left < stageBox.left - 1,
+      overflowRight: Math.max(after.right, orp.right) > stageBox.right + 1,
+      stageWidth: stageBox.width,
+      wordLeft: before.left,
+      wordRight: Math.max(after.right, orp.right)
+    };
+  }
+};
+
+loadSessionPrefs();
+setWpm(300);
+ensureUiTick();
+setupAccordionsForViewport();
+setupTouchGestures();
+if (els.btnFocus) els.btnFocus.addEventListener('click', toggleFocusMode);
+window.addEventListener('resize', function () {
+  var token = currentToken();
+  if (token) renderWord(token.text);
+});
+window.matchMedia('(max-width: 720px)').addEventListener('change', setupAccordionsForViewport);
+document.addEventListener('fullscreenchange', function () {
+  if (!document.fullscreenElement && state.focusMode) {
+    // user exited OS fullscreen — keep CSS focus or drop? Drop to stay consistent
+    state.focusMode = false;
+    document.body.classList.remove('focus-mode');
+    if (els.btnFocus) {
+      els.btnFocus.setAttribute('aria-pressed', 'false');
+      els.btnFocus.textContent = 'Focus';
+    }
+  }
+});
+document.addEventListener('visibilitychange', function () {
+  if (document.visibilityState === 'visible' && state.playing) requestWakeLock();
+});
+
+applyText('', { toast: false, persist: false, resetElapsed: true });
+els.source.value = '';
+
+
+/* ——— PWA service worker + sync UI ——— */
+function registerServiceWorker() {
+  var isHttp = location.protocol === 'http:' || location.protocol === 'https:';
+  if (!isHttp || !('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.register('./service-worker.js').then(function (reg) {
+    function showUpdate() {
+      var toast = document.getElementById('updateToast');
+      if (toast) toast.hidden = false;
+    }
+    if (reg.waiting) showUpdate();
+    reg.addEventListener('updatefound', function () {
+      var nw = reg.installing;
+      if (!nw) return;
+      nw.addEventListener('statechange', function () {
+        if (nw.state === 'installed' && navigator.serviceWorker.controller) showUpdate();
+      });
+    });
+    var btn = document.getElementById('btnUpdateReload');
+    if (btn) {
+      btn.addEventListener('click', function () {
+        if (reg.waiting) {
+          reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+        }
+        location.reload();
+      });
+    }
+    var refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (refreshing) return;
+      refreshing = true;
+      location.reload();
+    });
+  }).catch(function (err) {
+    console.warn('SW register failed', err);
+  });
+}
+
+function formatSyncTime(ts) {
+  if (!ts) return '';
+  try {
+    return new Date(ts).toLocaleString(undefined, {
+      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+  } catch (e) { return ''; }
+}
+
+function updateSyncPanel() {
+  if (typeof FocusSync === 'undefined') return;
+  var st = FocusSync.getStatus();
+  var line = document.getElementById('syncStatusLine');
+  var meta = document.getElementById('syncMetaLine');
+  var btnC = document.getElementById('btnSyncConnect');
+  var btnN = document.getElementById('btnSyncNow');
+  var btnD = document.getElementById('btnSyncDisconnect');
+  var help = document.getElementById('syncHelp');
+  var deviceInput = document.getElementById('deviceNameInput');
+  if (deviceInput && document.activeElement !== deviceInput) {
+    deviceInput.value = st.deviceName || '';
+  }
+  if (!st.configured) {
+    if (line) line.textContent = 'Cloud sync not configured yet';
+    if (meta) meta.textContent = 'Add googleClientId in config.js to enable Drive sync.';
+    if (btnC) btnC.hidden = true;
+    if (btnN) btnN.hidden = true;
+    if (btnD) btnD.hidden = true;
+    return;
+  }
+  if (btnC) btnC.hidden = st.connected;
+  if (btnN) btnN.hidden = !st.connected;
+  if (btnD) btnD.hidden = !st.connected;
+  if (st.pausedNeedReconnect) {
+    if (line) line.textContent = 'Sync paused — tap Connect to reconnect';
+    if (btnC) { btnC.hidden = false; btnC.textContent = 'Reconnect Google Drive'; }
+  } else if (st.connected) {
+    var who = st.email || 'Google Drive';
+    if (line) line.textContent = 'Connected as ' + who + (st.syncing ? ' · syncing…' : '');
+  } else {
+    if (line) line.textContent = 'Not connected';
+    if (btnC) btnC.textContent = 'Connect Google Drive';
+  }
+  var bits = [];
+  if (st.lastSyncedAt) bits.push('Last sync ' + formatSyncTime(st.lastSyncedAt));
+  if (st.pendingCount) bits.push(st.pendingCount + ' pending');
+  if (meta) meta.textContent = bits.join(' · ');
+}
+
+function showResumePrompt(device, wordN, onJump, onStay) {
+  var toast = els.toast;
+  toast.innerHTML = '';
+  var span = document.createElement('span');
+  span.textContent = 'Continue from ' + device + ' at word ' + wordN + '?';
+  var actions = document.createElement('span');
+  actions.className = 'resume-toast-actions';
+  var jump = document.createElement('button');
+  jump.type = 'button';
+  jump.className = 'btn btn-tiny';
+  jump.textContent = 'Jump';
+  var stay = document.createElement('button');
+  stay.type = 'button';
+  stay.className = 'btn btn-tiny btn-ghost';
+  stay.textContent = 'Stay';
+  actions.appendChild(jump);
+  actions.appendChild(stay);
+  toast.appendChild(span);
+  toast.appendChild(actions);
+  toast.classList.add('show');
+  clearTimeout(showToast._t);
+  jump.onclick = function () {
+    toast.classList.remove('show');
+    toast.textContent = '';
+    onJump();
+  };
+  stay.onclick = function () {
+    toast.classList.remove('show');
+    toast.textContent = '';
+    onStay();
+  };
+}
+
+var lastKnownLocalPos = null;
+
+function maybeOfferRemoteResume(syncResult) {
+  if (!syncResult || !state.currentDocId) return;
+  return RecentStore.get(state.currentDocId).then(function (doc) {
+    if (!doc) return;
+    // If cloud progressed further on another device
+    var remote = doc._remoteDevice;
+    // After merge, remote device hint may be gone — compare via FocusSync pull hints
+    var hints = (syncResult.remoteHints || []).filter(function (h) {
+      return h.id === state.currentDocId;
+    });
+    if (!hints.length) return;
+    var h = hints[0];
+    if (h.position == null || h.position === state.index) return;
+    if (h.position < state.index) return;
+    var device = h._remoteDevice || 'another device';
+    if (!state.playing && (lastKnownLocalPos == null || lastKnownLocalPos === state.index)) {
+      // auto-jump when paused and local unchanged
+      state.index = h.position;
+      var token = currentToken();
+      if (token) renderWord(token.text);
+      updateProgress();
+      showToast('Jumped to word ' + (state.index + 1) + ' from ' + device);
+      return;
+    }
+    showResumePrompt(device, h.position + 1, function () {
+      state.index = h.position;
+      if (state.playing) pause();
+      var token = currentToken();
+      if (token) renderWord(token.text);
+      updateProgress();
+      scheduleSaveProgress(true);
+    }, function () {});
+  });
+}
+
+function wireSyncUi() {
+  if (typeof FocusSync === 'undefined') return;
+  FocusSync.onStatus(updateSyncPanel);
+  updateSyncPanel();
+  var btnC = document.getElementById('btnSyncConnect');
+  var btnN = document.getElementById('btnSyncNow');
+  var btnD = document.getElementById('btnSyncDisconnect');
+  var deviceInput = document.getElementById('deviceNameInput');
+  if (btnC) btnC.addEventListener('click', function () {
+    FocusSync.connect().then(function (res) {
+      refreshRecentList();
+      maybeOfferRemoteResume(res);
+      showToast('Synced');
+    }).catch(function (err) {
+      showToast(err.message || 'Connect failed');
+    });
+  });
+  if (btnN) btnN.addEventListener('click', function () {
+    FocusSync.syncNow().then(function (res) {
+      refreshRecentList();
+      maybeOfferRemoteResume(res);
+      showToast('Synced');
+    }).catch(function (err) {
+      showToast(err.message || 'Sync failed');
+    });
+  });
+  if (btnD) btnD.addEventListener('click', function () {
+    FocusSync.disconnect().then(function () {
+      showToast('Disconnected');
+    });
+  });
+  if (deviceInput) {
+    deviceInput.addEventListener('change', function () {
+      FocusSync.setDeviceName(deviceInput.value.trim());
+    });
+  }
+  FocusSync.trySilentReconnect().then(function (ok) {
+    if (ok) refreshRecentList();
+  });
+  FocusSync.startLoop(function () {
+    return {
+      playing: state.playing,
+      docId: state.currentDocId,
+      position: state.index,
+      wpm: state.wpm
+    };
+  });
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible' && FocusSync.getStatus().connected) {
+      lastKnownLocalPos = state.index;
+      FocusSync.syncNow().then(function (res) {
+        refreshRecentList();
+        maybeOfferRemoteResume(res);
+      }).catch(function () {});
+    }
+  });
+  window.addEventListener('online', function () {
+    if (FocusSync.getStatus().connected) {
+      FocusSync.syncNow().then(function () { refreshRecentList(); }).catch(function () {});
+    }
+  });
+}
+
+// Track local position for auto-jump heuristic
+var _origPause = pause;
+pause = function () {
+  lastKnownLocalPos = state.index;
+  _origPause();
+  if (typeof FocusSync !== 'undefined' && FocusSync.getStatus().connected) {
+    FocusSync.syncNow().catch(function () {});
+  }
+};
+
+registerServiceWorker();
+wireSyncUi();
+
+resumeMostRecentOnStartup().catch(function (err) {
+  console.error(err);
+});
+
+})();

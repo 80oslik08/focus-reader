@@ -1,0 +1,25 @@
+PASS: FocusSync loaded
+PASS: mergeBooks exported
+
+=== Merge LWW ===
+PASS: B gets 1 book from cloud
+PASS: B position is 500
+PASS: B got text
+PASS: A adopts B position 800 (newer updatedAt)
+PASS: remote device hint set
+PASS: local newer wins over older cloud
+
+=== Tombstones ===
+PASS: tombstone removes book from merge
+PASS: deletedLocal includes id
+
+=== Fake Drive two-device simulation ===
+PASS: drive has book+progress files
+PASS: device B sync gets text+pos 500
+PASS: device A sync after B reaches 800
+PASS: delete on A propagates to B merge
+
+=== Offline queue flush shape ===
+PASS: offline queue flush uploads position 900
+
+RESULT: PASS
