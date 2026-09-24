@@ -153,7 +153,7 @@ async function writeBlob(url, blob) {
     await writable.write(blob);
     await writable.close();
   } catch (e) {
-    console.error(e);
+    if (!(e && (e.name === "NotFoundError" || e.name === "NotAllowedError"))) console.error(e);
   }
 }
 async function removeBlob(url) {
@@ -164,7 +164,7 @@ async function removeBlob(url) {
     const file = await dir.getFileHandle(path);
     await file.remove();
   } catch (e) {
-    console.error(e);
+    if (!(e && (e.name === "NotFoundError" || e.name === "NotAllowedError"))) console.error(e);
   }
 }
 async function readBlob(url) {
@@ -317,7 +317,7 @@ const _TtsSession = class _TtsSession {
     if (chunks.length === 0) throw new Error("No text to predict on.");
     if (chunks.length > 1)
       (_a = __privateGet(this, _logger)) == null ? void 0 : _a.call(this, `Long text - splitting into ${chunks.length} chunks for inference.`);
-    const pcms = [];
+    const results = [];
     for (let i = 0; i < chunks.length; i++) {
       if (chunks.length > 1) {
         (_b = __privateGet(this, _logger)) == null ? void 0 : _b.call(
@@ -330,7 +330,7 @@ const _TtsSession = class _TtsSession {
           total: chunks.length
         });
       }
-      pcms.push(await __privateMethod(this, _TtsSession_instances, predictChunk_fn).call(this, chunks[i]));
+      results.push(await __privateMethod(this, _TtsSession_instances, predictChunk_fn).call(this, chunks[i]));
     }
     if (chunks.length > 1) {
       (_d = __privateGet(this, _logger)) == null ? void 0 : _d.call(this, "TTS inference: all chunks complete.");
@@ -340,6 +340,13 @@ const _TtsSession = class _TtsSession {
         total: chunks.length
       });
     }
+    const pcms = results.map((r) => r && r.pcm ? r.pcm : r);
+    const allPhonemes = [];
+    for (let ri = 0; ri < results.length; ri++) {
+      const ph = (results[ri] && results[ri].phonemes) || [];
+      if (allPhonemes.length && ph.length) allPhonemes.push(" ");
+      for (let pi = 0; pi < ph.length; pi++) allPhonemes.push(ph[pi]);
+    }
     const totalLength = pcms.reduce((sum, pcm) => sum + pcm.length, 0);
     const merged = new Float32Array(totalLength);
     let offset = 0;
@@ -347,9 +354,11 @@ const _TtsSession = class _TtsSession {
       merged.set(pcm, offset);
       offset += pcm.length;
     }
-    return new Blob([pcm2wav(merged, 1, sampleRate)], {
+    const blob = new Blob([pcm2wav(merged, 1, sampleRate)], {
       type: "audio/x-wav"
     });
+    blob.__piperMeta = { sampleRate, pcm: merged, phonemes: allPhonemes, durationSec: merged.length / sampleRate };
+    return blob;
   }
 };
 _createPiperPhonemize = new WeakMap();
@@ -362,13 +371,13 @@ _logger = new WeakMap();
 _TtsSession_instances = new WeakSet();
 predictChunk_fn = async function(text) {
   const input = JSON.stringify([{ text: text.trim() }]);
-  const phonemeIds = await new Promise(async (resolve) => {
+  const phonemeResult = await new Promise(async (resolve, reject) => {
     const module = await __privateGet(this, _createPiperPhonemize).call(this, {
       print: (data) => {
-        resolve(JSON.parse(data).phoneme_ids);
+        try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
       },
       printErr: (message) => {
-        throw new Error(message);
+        reject(new Error(message));
       },
       locateFile: (url) => {
         if (url.endsWith(".wasm")) return __privateGet(this, _wasmPaths).piperWasm;
@@ -385,6 +394,8 @@ predictChunk_fn = async function(text) {
       "/espeak-ng-data"
     ]);
   });
+  const phonemeIds = phonemeResult.phoneme_ids || [];
+  const phonemes = phonemeResult.phonemes || [];
   const speakerId = 0;
   const noiseScale = __privateGet(this, _modelConfig).inference.noise_scale;
   const lengthScale = __privateGet(this, _modelConfig).inference.length_scale;
@@ -407,7 +418,7 @@ predictChunk_fn = async function(text) {
   const {
     output: { data: pcm }
   } = await session.run(feeds);
-  return pcm;
+  return { pcm, phonemes, phonemeIds };
 };
 __publicField(_TtsSession, "WASM_LOCATIONS", DEFAULT_WASM_PATHS);
 __publicField(_TtsSession, "_instance", null);
@@ -450,9 +461,28 @@ function splitIntoChunks(text, maxLength = MAX_CHUNK_LENGTH) {
 async function predict(config, callback) {
   const session = new TtsSession({
     voiceId: config.voiceId,
-    progress: callback
+    progress: callback,
+    wasmPaths: config.wasmPaths,
+    logger: config.logger
   });
   return session.predict(config.text);
+}
+async function predictTimed(config, callback) {
+  const session = await TtsSession.create({
+    voiceId: config.voiceId,
+    progress: callback,
+    wasmPaths: config.wasmPaths,
+    logger: config.logger
+  });
+  const blob = await session.predict(config.text);
+  const meta = blob.__piperMeta || {};
+  return {
+    blob,
+    pcm: meta.pcm || null,
+    sampleRate: meta.sampleRate || 22050,
+    phonemes: meta.phonemes || [],
+    durationSec: meta.durationSec || 0
+  };
 }
 async function getBlob(url, callback) {
   let blob = await readBlob(url);
@@ -491,10 +521,12 @@ async function stored() {
 async function flush() {
   try {
     const root = await navigator.storage.getDirectory();
-    const dir = await root.getDirectoryHandle("piper");
+    let dir;
+    try { dir = await root.getDirectoryHandle("piper"); }
+    catch (e) { if (e && e.name === "NotFoundError") return; throw e; }
     await dir.remove({ recursive: true });
   } catch (e) {
-    console.error(e);
+    if (!(e && (e.name === "NotFoundError" || e.name === "NotAllowedError"))) console.error(e);
   }
 }
 async function voices() {
@@ -518,6 +550,7 @@ export {
   download,
   flush,
   predict,
+  predictTimed,
   remove,
   stored,
   voices

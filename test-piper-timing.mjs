@@ -47,5 +47,38 @@ assert(wpmToLengthScale(90) > 1, 'slower → higher scale');
 assert(wpmToLengthScale(1000) === 0.55, 'clamp low');
 assert(wpmToLengthScale(10) === 2.2, 'clamp high via max80→2.2');
 
-console.log(failed ? `FAILED ${failed}` : 'All piper timing tests passed');
+// Phoneme-based allocation (mirrors piper-timing.js)
+function phonemesPerWord(phonemes) {
+  var groups = [[]];
+  for (var i = 0; i < (phonemes || []).length; i++) {
+    var p = phonemes[i];
+    if (p === ' ' || p === '' || p === '_' || p === '|') {
+      if (groups[groups.length - 1].length) groups.push([]);
+    } else groups[groups.length - 1].push(p);
+  }
+  if (groups.length && !groups[groups.length - 1].length) groups.pop();
+  return groups;
+}
+function allocateByPhonemes(words, phonemes, durationSec) {
+  var groups = phonemesPerWord(phonemes);
+  var weights = [], total = 0;
+  for (var i = 0; i < words.length; i++) {
+    var phCount = (groups[i] && groups[i].length) || 1;
+    var punct = /[.!?…]$/.test(words[i]) ? 2.6 : /[,;:]$/.test(words[i]) ? 1.5 : 0;
+    var wt = Math.max(0.4, phCount) + punct;
+    weights.push(wt); total += wt;
+  }
+  var ends = [], acc = 0;
+  for (var k = 0; k < weights.length; k++) {
+    acc += weights[k]; ends.push((acc / total) * durationSec);
+  }
+  ends[ends.length - 1] = durationSec;
+  return ends;
+}
+const ph = ['h','ə','l','o',' ','w','ɝ','l','d'];
+const pe = allocateByPhonemes(['Hello','world'], ph, 2);
+assert(pe.length === 2, 'phoneme ends length');
+assert(Math.abs(pe[1] - 2) < 1e-9, 'phoneme ends duration');
+assert(phonemesPerWord(ph).length === 2, 'phoneme groups = 2');
+console.log(failed ? `FAILED ${failed}` : 'All piper timing tests passed (incl phonemes)');
 process.exit(failed ? 1 : 0);

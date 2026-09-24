@@ -15,8 +15,15 @@ async function predict(config, callback) {
     wasmPaths: config.wasmPaths || DEFAULT_WASM,
     logger: config.logger
   });
-  // length_scale via model config if exposed later
   return session.predict(config.text);
+}
+
+async function predictTimed(config, callback) {
+  return tts.predictTimed({
+    ...config,
+    voiceId: config.voiceId || config.voice,
+    wasmPaths: config.wasmPaths || DEFAULT_WASM
+  }, callback);
 }
 
 async function download(voiceId, callback) {
@@ -25,6 +32,7 @@ async function download(voiceId, callback) {
 
 const api = {
   predict,
+  predictTimed,
   download,
   remove: tts.remove,
   flush: tts.flush,
@@ -36,7 +44,7 @@ const api = {
 };
 
 export default api;
-export { predict, download };
+export { predict, predictTimed, download };
 
 if (typeof window !== 'undefined') {
   window.FocusPiper = api;

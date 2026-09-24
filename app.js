@@ -1883,15 +1883,24 @@ if (els.themeSeg) {
 }
 
 
+var _voiceLoadStarted = 0;
 function populateVoiceSelect() {
   if (!els.voiceSelect || typeof FocusListen === 'undefined') return;
   var voices = FocusListen.loadVoices(true);
   if (!voices.length) voices = FocusListen.getVoices();
+  if (!voices.length && !_voiceLoadStarted) {
+    _voiceLoadStarted = Date.now();
+    setTimeout(function () { populateVoiceSelect(); }, 500);
+    setTimeout(function () { populateVoiceSelect(); }, 2000);
+  }
   var prev = els.voiceSelect.value || (FocusListen.getVoiceURI && FocusListen.getVoiceURI()) || '';
   els.voiceSelect.innerHTML = '';
   var ph = document.createElement('option');
   ph.value = '';
-  ph.textContent = voices.length ? 'Auto (best available)' : 'System voice (loading…)';
+  var loadingTooLong = !voices.length && _voiceLoadStarted && (Date.now() - _voiceLoadStarted > 2000);
+  ph.textContent = voices.length
+    ? 'Auto (best available)'
+    : (loadingTooLong ? 'System voice' : 'System voice (loading…)');
   els.voiceSelect.appendChild(ph);
   var groups = {};
   voices.forEach(function (v) {
@@ -3466,6 +3475,12 @@ resumeMostRecentOnStartup().catch(function (err) {
     FocusMediaSession.setPlaybackState(state.playing ? 'playing' : 'paused');
   }, 2000);
 
+  // Warm Piper when user opens Natural voices or toggles Listen
+  document.addEventListener('click', function (e) {
+    var t = e.target && e.target.closest && e.target.closest('#btnVoicesManager, #btnListen, #btnFocusListen, #btnListenSheet');
+    if (t && typeof warmPreferredPiper === 'function') warmPreferredPiper();
+  }, true);
+
   // Extend voice select with Piper voices when ready
   var _pop = typeof populateVoiceSelect === 'function' ? populateVoiceSelect : null;
   window.populateVoiceSelect = function () {
@@ -3493,8 +3508,47 @@ resumeMostRecentOnStartup().catch(function (err) {
         og.appendChild(o);
       });
       sel.insertBefore(og, sel.firstChild);
+      // Prefer downloaded natural voice matching book language
+      var bookLang = (state.bookLang || (state.langOverride || '') || '').slice(0, 2).toLowerCase();
+      if (bookLang && stored.length && FocusListen && FocusListen.getEngineName && FocusListen.getEngineName() !== 'piper') {
+        var match = stored.find(function (id) {
+          return id.toLowerCase().indexOf(bookLang + '_') === 0 || id.toLowerCase().indexOf('_' + bookLang + '_') >= 0
+            || id.toLowerCase().slice(0, 2) === bookLang;
+        });
+        // soft hint only — don't force if user already picked
+        if (match && !sel.value) {
+          /* keep Auto; warm preferred */
+          if (FocusPiperEngine && FocusPiperEngine.warm) FocusPiperEngine.warm(match);
+        }
+      }
     }).catch(function () {});
   };
+
+  function warmPreferredPiper() {
+    if (!window.FocusPiperEngine || !FocusPiperEngine.warm) return;
+    var vid = FocusPiperEngine.getVoiceId && FocusPiperEngine.getVoiceId();
+    if (!vid && window.FocusPiperUtil) {
+      try {
+        var map = FocusPiperUtil.loadVoiceMap() || {};
+        var lang = (state.bookLang || 'en').slice(0, 2);
+        vid = map[lang] || map.en || null;
+      } catch (e) {}
+    }
+    if (!vid && window.FocusPiper && FocusPiper.stored) {
+      Promise.resolve(FocusPiper.stored()).then(function (stored) {
+        stored = stored || [];
+        var lang = (state.bookLang || '').slice(0, 2).toLowerCase();
+        var pick = stored.find(function (id) { return id.toLowerCase().indexOf(lang) === 0; }) || stored[0];
+        if (pick) {
+          FocusPiperEngine.setVoiceId(pick);
+          FocusPiperEngine.warm(pick);
+        }
+      });
+      return;
+    }
+    if (vid) FocusPiperEngine.warm(vid);
+  }
+  window.warmPreferredPiper = warmPreferredPiper;
   if (els.voiceSelect) {
     els.voiceSelect.addEventListener('change', function () {
       var v = els.voiceSelect.value || '';
