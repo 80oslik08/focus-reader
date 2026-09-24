@@ -204,6 +204,28 @@
     });
   }
 
+  function enqueueSettings(data) {
+    return queuePut({
+      key: 'settings',
+      kind: 'settings',
+      id: 'settings',
+      payload: Object.assign({ updatedAt: Date.now() }, data || {}),
+      updatedAt: Date.now()
+    });
+  }
+
+  function notifySettings(data) {
+    try {
+      localStorage.setItem('focusReader.voiceLimit.pendingSync', JSON.stringify(data || {}));
+    } catch (e) {}
+    if (!isConfigured()) return Promise.resolve();
+    return enqueueSettings(data).then(function () {
+      if (state.connected && navigator.onLine !== false) {
+        // flushed by sync loop / syncNow
+      }
+    });
+  }
+
   /* ——— Merge logic (pure, unit-tested) ——— */
   /**
    * Merge local docs + cloud snapshots.
@@ -253,7 +275,9 @@
         }
         if (cp) {
           var localTs = byId[id].updatedAt || byId[id].lastOpened || 0;
-          if (cp.updatedAt > localTs) {
+          var localPos = byId[id].position || 0;
+          // Never regress: only take remote if strictly newer AND (remote pos > 0 or local is 0)
+          if (cp.updatedAt > localTs && !((cp.position || 0) === 0 && localPos > 0)) {
             byId[id].position = cp.position;
             byId[id].wpm = cp.wpm;
             byId[id].updatedAt = cp.updatedAt;
@@ -270,7 +294,8 @@
       if (!byId[id]) return;
       var cp = cloudProgress[id];
       var localTs = byId[id].updatedAt || byId[id].lastOpened || 0;
-      if (cp.updatedAt > localTs) {
+      var localPos = byId[id].position || 0;
+      if (cp.updatedAt > localTs && !((cp.position || 0) === 0 && localPos > 0)) {
         byId[id].position = cp.position;
         byId[id].wpm = cp.wpm;
         byId[id].updatedAt = cp.updatedAt;
@@ -526,6 +551,7 @@
             var name =
               item.kind === 'book' ? 'book-' + item.id + '.json' :
               item.kind === 'progress' ? 'progress-' + item.id + '.json' :
+              item.kind === 'settings' ? 'settings.json' :
               'deleted-' + item.id + '.json';
             var existing = ad.findByName(files, name);
             return ad.uploadJson(name, item.payload, existing && existing.id).then(function (meta) {
@@ -567,6 +593,19 @@
         if (f.name.indexOf('deleted-') === 0 && f.name.endsWith('.json')) {
           return ad.downloadJson(f.id).then(function (data) {
             tombstones[data.id] = data;
+          }).catch(function () {});
+        }
+        if (f.name === 'settings.json') {
+          return ad.downloadJson(f.id).then(function (data) {
+            try {
+              var localRaw = localStorage.getItem('focusReader.voiceLimit');
+              var local = localRaw ? JSON.parse(localRaw) : {};
+              var localTs = local.updatedAt || 0;
+              var remoteTs = data.updatedAt || 0;
+              if (remoteTs > localTs && typeof VoiceLimit !== 'undefined') {
+                VoiceLimit.applyRemoteSettings(data);
+              }
+            } catch (e) {}
           }).catch(function () {});
         }
         return Promise.resolve();
@@ -693,6 +732,7 @@
     trySilentReconnect: trySilentReconnect,
     syncNow: syncNow,
     notifyLocalChange: notifyLocalChange,
+    notifySettings: notifySettings,
     startLoop: startLoop,
     stopLoop: stopLoop,
     setDeviceName: setDeviceName,

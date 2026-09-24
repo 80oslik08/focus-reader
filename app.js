@@ -37,8 +37,17 @@ var els = {
   iconPlay: document.getElementById('iconPlay'),
   iconPause: document.getElementById('iconPause'),
   btnRestart: document.getElementById('btnRestart'),
-  btnSkipBack: document.getElementById('btnSkipBack'),
-  btnSkipFwd: document.getElementById('btnSkipFwd'),
+  btnWpmDown: document.getElementById('btnWpmDown'),
+  btnWpmUp: document.getElementById('btnWpmUp'),
+  btnListen: document.getElementById('btnListen'),
+  voiceLimitTrack: document.getElementById('voiceLimitTrack'),
+  voiceLimitZone: document.getElementById('voiceLimitZone'),
+  voiceLimitTick: document.getElementById('voiceLimitTick'),
+  voiceLimitLabel: document.getElementById('voiceLimitLabel'),
+  voiceLimitHint: document.getElementById('voiceLimitHint'),
+  listenVoiceRow: document.getElementById('listenVoiceRow'),
+  voiceSelect: document.getElementById('voiceSelect'),
+  langOverride: document.getElementById('langOverride'),
   btnLoadSample: document.getElementById('btnLoadSample'),
   btnApply: document.getElementById('btnApply'),
   btnClear: document.getElementById('btnClear'),
@@ -78,6 +87,11 @@ var state = {
   index: 0,
   playing: false,
   wpm: 300,
+  positionRestored: false,
+  listenMode: false,
+  bookLang: null,
+  langOverride: '',
+
   timer: null,
   sentenceWordCount: 0,
   // reading timer
@@ -154,8 +168,9 @@ function liveSessionRemainingMs() {
   return Math.max(0, rem);
 }
 
-function setWpm(v, syncInputs) {
+function setWpm(v, syncInputs, skipSave) {
   if (syncInputs === undefined) syncInputs = true;
+  var prev = state.wpm;
   state.wpm = clampWpm(v);
   els.wpmDisplay.textContent = String(state.wpm);
   if (syncInputs) {
@@ -163,7 +178,19 @@ function setWpm(v, syncInputs) {
     els.wpmInput.value = String(state.wpm);
   }
   updateTimerDisplays();
-  scheduleSaveProgress(true);
+  updateVoiceLimitUI();
+  if (typeof VoiceLimit !== 'undefined' && state.listenMode && state.playing) {
+    VoiceLimit.tick(state.wpm, state.langOverride || state.bookLang, true);
+  }
+  // Restart listen utterance from current word when speed changes while listening
+  if (state.listenMode && state.playing && typeof FocusListen !== 'undefined' && prev !== state.wpm) {
+    FocusListen.speakFromWordIndex(
+      state.wordIndices.map(function (ti) { return state.tokens[ti].text; }),
+      state.index,
+      state.wpm
+    );
+  }
+  if (!skipSave) scheduleSaveProgress(true);
 }
 
 function rebuildWordIndex() {
@@ -472,11 +499,21 @@ function play() {
   setPlayingUI(true);
   requestWakeLock();
   ensureUiTick();
-  scheduleNext();
+  if (state.listenMode && typeof FocusListen !== 'undefined' && FocusListen.supportsSpeech()) {
+    stopWordTimer();
+    FocusListen.speakFromWordIndex(
+      state.wordIndices.map(function (ti) { return state.tokens[ti].text; }),
+      state.index,
+      state.wpm
+    );
+  } else {
+    scheduleNext();
+  }
 }
 
 function pause() {
   stopWordTimer();
+  if (typeof FocusListen !== 'undefined') FocusListen.stop(true);
   flushPlayClock();
   setPlayingUI(false);
   releaseWakeLock();
@@ -501,6 +538,7 @@ function resetElapsedTimers() {
 
 function restart() {
   stopWordTimer();
+  if (typeof FocusListen !== 'undefined') FocusListen.stop(true);
   flushPlayClock();
   state.index = 0;
   state.sentenceWordCount = 0;
@@ -535,7 +573,15 @@ function skip(delta) {
   if (wasPlaying) {
     startPlayClocks();
     setPlayingUI(true);
-    scheduleNext();
+    if (state.listenMode && typeof FocusListen !== 'undefined') {
+      FocusListen.speakFromWordIndex(
+        state.wordIndices.map(function (ti) { return state.tokens[ti].text; }),
+        state.index,
+        state.wpm
+      );
+    } else {
+      scheduleNext();
+    }
   } else {
     setPlayingUI(false);
   }
@@ -554,6 +600,31 @@ function pastedNameFromText(text) {
  * Load text into reader.
  * opts: { toast, persist, name, type, position, docId, resumeNotice, resetElapsed }
  */
+
+/** Flush current book progress synchronously (promise) before switching away. */
+function flushCurrentBook() {
+  stopWordTimer();
+  flushPlayClock();
+  if (state.playing) {
+    setPlayingUI(false);
+    releaseWakeLock();
+  }
+  if (!state.currentDocId || typeof RecentStore === 'undefined') {
+    return Promise.resolve();
+  }
+  return RecentStore.updateProgress(state.currentDocId, {
+    position: state.index,
+    wpm: state.wpm,
+    lastOpened: Date.now()
+  }).then(function () {
+    return refreshRecentList();
+  }).catch(function () {});
+}
+
+/**
+ * Load text into reader, restoring saved position by content-hash id.
+ * Always flushes the previous book first.
+ */
 function showLoading(msg, frac) {
   var ov = document.getElementById('loadingOverlay');
   var lt = document.getElementById('loadingText');
@@ -571,93 +642,153 @@ function hideLoading() {
 function applyText(text, opts) {
   opts = opts || {};
   var doToast = opts.toast !== false;
-  stopWordTimer();
-  flushPlayClock();
-  setPlayingUI(false);
+  var raw = text || '';
 
-  var finish = function (tokens) {
-    state.tokens = tokens || [];
-    rebuildWordIndex();
-    var total = totalWords();
-    var pos = opts.position != null ? opts.position : 0;
-    if (pos < 0) pos = 0;
-    if (total && pos >= total) pos = total - 1;
-    state.index = total ? pos : 0;
-    state.sentenceWordCount = 0;
-    if (opts.resetElapsed !== false) resetElapsedTimers();
+  var run = function () {
+    state.positionRestored = false;
+    stopWordTimer();
+    flushPlayClock();
+    setPlayingUI(false);
+    if (typeof stopListening === 'function') stopListening(true);
+    if (typeof FocusListen !== 'undefined') FocusListen.stop(true);
 
-    if (opts.driveFileId) {
-      state.currentDriveFileId = opts.driveFileId;
-    }
-
-    if (total) {
-      renderWord(state.tokens[state.wordIndices[state.index]].text);
-      els.statusLabel.textContent = 'Ready';
-      if (doToast && !opts.resumeNotice) showToast(total.toLocaleString() + ' words loaded');
-    } else {
-      renderWord(null);
-      els.placeholder.textContent = 'Paste or import text, then press Play';
-      els.statusLabel.textContent = 'Ready';
-    }
-    updateProgress();
-    hideLoading();
-
-    if (opts.persist !== false && text && String(text).trim() && typeof RecentStore !== 'undefined') {
-      var name = opts.name || pastedNameFromText(text);
-      var type = opts.type || 'paste';
-      RecentStore.upsertDocument({
-        name: name,
-        type: type,
-        text: text,
-        wordCount: total,
-        position: state.index,
-        wpm: state.wpm,
-        keepPosition: false
-      }).then(function (doc) {
-        if (opts.driveFileId) {
-          doc.driveFileId = opts.driveFileId;
-          doc.driveFileName = name;
-          doc.source = 'drive-library';
-          return RecentStore.put(doc).then(function (saved) {
-            if (typeof FocusSync !== 'undefined') {
-              FocusSync.notifyLocalChange('book', saved);
-              FocusSync.notifyLocalChange('progress', saved);
-            }
-            return saved;
-          });
+    var finish = function (tokens, restorePos) {
+      state.tokens = tokens || [];
+      rebuildWordIndex();
+      var total = totalWords();
+      var pos = restorePos != null ? restorePos : (opts.position != null ? opts.position : 0);
+      if (pos < 0) pos = 0;
+      if (total && pos >= total) pos = total - 1;
+      state.index = total ? pos : 0;
+      state.sentenceWordCount = 0;
+      state.positionRestored = true;
+      if (typeof FocusListen !== 'undefined') {
+        state.bookLang = FocusListen.setDetectedFromText(raw);
+        var savedLang = null;
+        try {
+          var map = JSON.parse(localStorage.getItem('focusReader.bookLang') || '{}');
+          if (opts.docId && map[opts.docId]) savedLang = map[opts.docId];
+        } catch (e) {}
+        if (savedLang) {
+          state.langOverride = savedLang;
+          FocusListen.setLangOverride(savedLang);
+          if (els.langOverride) els.langOverride.value = savedLang;
+        } else if (els.langOverride) {
+          els.langOverride.value = state.langOverride || '';
+          FocusListen.setLangOverride(state.langOverride || '');
         }
-        return doc;
-      }).then(function (doc) {
-        state.currentDocId = doc.id;
-        state.currentDocName = doc.name;
-        state.currentDocType = doc.type;
-        return refreshRecentList();
-      }).catch(function (err) { console.error(err); });
-    } else if (opts.docId) {
-      state.currentDocId = opts.docId;
-      state.currentDocName = opts.name || null;
-      state.currentDocType = opts.type || null;
-    }
+      }
+      if (opts.resetElapsed !== false) resetElapsedTimers();
+      updateVoiceLimitUI();
 
-    if (opts.resumeNotice && opts.name) {
-      showToast('Resumed: ' + opts.name + ' at word ' + (state.index + 1));
-    }
+      if (opts.driveFileId) state.currentDriveFileId = opts.driveFileId;
+
+      if (total) {
+        renderWord(state.tokens[state.wordIndices[state.index]].text);
+        els.statusLabel.textContent = 'Ready';
+        if (doToast && !opts.resumeNotice) {
+          var msg = total.toLocaleString() + ' words loaded';
+          if (state.index > 0) msg += ' · resumed at ' + (state.index + 1);
+          showToast(msg);
+        }
+      } else {
+        renderWord(null);
+        els.placeholder.textContent = 'Paste or import text, then press Play';
+        els.statusLabel.textContent = 'Ready';
+      }
+      updateProgress();
+      hideLoading();
+
+      var afterUi = Promise.resolve();
+      if (opts.persist !== false && raw && String(raw).trim() && typeof RecentStore !== 'undefined') {
+        var name = opts.name || pastedNameFromText(raw);
+        var type = opts.type || 'paste';
+        afterUi = RecentStore.upsertDocument({
+          name: name,
+          type: type,
+          text: raw,
+          wordCount: total,
+          position: state.index,
+          wpm: state.wpm,
+          keepPosition: state.index === 0 && !opts.resetPosition,
+          resetPosition: !!opts.resetPosition
+        }).then(function (doc) {
+          if (opts.driveFileId) {
+            doc.driveFileId = opts.driveFileId;
+            doc.driveFileName = name;
+            doc.source = 'drive-library';
+            return RecentStore.put(doc).then(function (saved) {
+              if (typeof FocusSync !== 'undefined') {
+                FocusSync.notifyLocalChange('book', saved);
+                FocusSync.notifyLocalChange('progress', saved);
+              }
+              return saved;
+            });
+          }
+          return doc;
+        }).then(function (doc) {
+          state.currentDocId = doc.id;
+          state.currentDocName = doc.name;
+          state.currentDocType = doc.type;
+          // Ensure stored position matches restored index (don't write 0 over real progress)
+          if ((doc.position || 0) !== state.index && state.index > 0) {
+            return RecentStore.updateProgress(doc.id, {
+              position: state.index,
+              wpm: state.wpm,
+              lastOpened: Date.now()
+            }).then(function () { return refreshRecentList(); });
+          }
+          return refreshRecentList();
+        }).catch(function (err) { console.error(err); });
+      } else if (opts.docId) {
+        state.currentDocId = opts.docId;
+        state.currentDocName = opts.name || null;
+        state.currentDocType = opts.type || null;
+      }
+
+      if (opts.resumeNotice && opts.name) {
+        showToast('Resumed: ' + opts.name + ' at word ' + (state.index + 1));
+      }
+      return afterUi;
+    };
+
+    var resolvePosition = function () {
+      if (opts.position != null && opts.position > 0) return Promise.resolve(opts.position);
+      if (opts.docId && opts.position != null) return Promise.resolve(opts.position);
+      if (!raw || !String(raw).trim() || typeof RecentStore === 'undefined') {
+        return Promise.resolve(opts.position != null ? opts.position : 0);
+      }
+      return RecentStore.hashText(raw).then(function (id) {
+        return RecentStore.get(id).then(function (existing) {
+          if (existing && (existing.position || 0) > 0 && !opts.resetPosition) {
+            return existing.position;
+          }
+          return opts.position != null ? opts.position : 0;
+        });
+      });
+    };
+
+    return resolvePosition().then(function (restorePos) {
+      var approxWords = raw.length / 5;
+      if (approxWords > 20000 && tokenizeAsync) {
+        showLoading('Preparing book…', 0.02);
+        return tokenizeAsync(raw, function (frac) {
+          showLoading('Tokenizing… ' + Math.round(frac * 100) + '%', frac);
+        }).then(function (tokens) {
+          return finish(tokens, restorePos);
+        }).catch(function (err) {
+          console.error(err);
+          hideLoading();
+          showToast('Could not load book');
+        });
+      }
+      return finish(tokenize(raw), restorePos);
+    });
   };
 
-  var raw = text || '';
-  var approxWords = raw.length / 5;
-  if (approxWords > 20000 && tokenizeAsync) {
-    showLoading('Preparing book…', 0.02);
-    tokenizeAsync(raw, function (frac) {
-      showLoading('Tokenizing… ' + Math.round(frac * 100) + '%', frac);
-    }).then(finish).catch(function (err) {
-      console.error(err);
-      hideLoading();
-      showToast('Could not load book');
-    });
-  } else {
-    finish(tokenize(raw));
-  }
+  // Flush previous book before loading a new one (unless skipFlush)
+  if (opts.skipFlush) return Promise.resolve().then(run);
+  return flushCurrentBook().then(run);
 }
 
 
@@ -700,7 +831,7 @@ async function loadFile(file) {
     }
     text = (text || '').trim();
     els.source.value = text;
-    applyText(text, { toast: true, persist: true, name: name, type: type, position: 0 });
+    applyText(text, { toast: true, persist: true, name: name, type: type });
   } catch (err) {
     console.error(err);
     showToast('Could not read that file');
@@ -708,6 +839,8 @@ async function loadFile(file) {
 }
 
 function scheduleSaveProgress(force) {
+  // Never persist a fresh 0 before restore has completed (avoids wiping real progress)
+  if (!state.positionRestored) return;
   if (!state.currentDocId || typeof RecentStore === 'undefined') return;
   clearTimeout(state.saveTimer);
   var run = function () {
@@ -808,10 +941,10 @@ function openRecentDoc(id) {
         return;
       }
       els.source.value = doc2.text || '';
-      if (doc2.wpm) setWpm(doc2.wpm);
+      if (doc2.wpm) setWpm(doc2.wpm, true, true);
       applyText(doc2.text, {
         toast: false,
-        persist: false,
+        persist: true,
         docId: doc2.id,
         name: doc2.name,
         type: doc2.type,
@@ -819,11 +952,6 @@ function openRecentDoc(id) {
         resumeNotice: true,
         resetElapsed: true
       });
-      RecentStore.updateProgress(doc2.id, {
-        position: doc2.position || 0,
-        wpm: state.wpm,
-        lastOpened: Date.now()
-      }).then(function () { refreshRecentList(); });
     });
   });
 }
@@ -835,7 +963,7 @@ function resumeMostRecentOnStartup() {
     if (!rows.length) return;
     var doc = rows[0];
     els.source.value = doc.text || '';
-    if (doc.wpm) setWpm(doc.wpm, true);
+    if (doc.wpm) setWpm(doc.wpm, true, true);
     applyText(doc.text, {
       toast: false,
       persist: false,
@@ -1098,8 +1226,186 @@ function setupTouchGestures() {
 /* ——— Events ——— */
 els.btnPlay.addEventListener('click', togglePlay);
 els.btnRestart.addEventListener('click', restart);
-els.btnSkipBack.addEventListener('click', function () { skip(-5); });
-els.btnSkipFwd.addEventListener('click', function () { skip(5); });
+
+function bindHoldRepeat(btn, fn) {
+  if (!btn) return;
+  var timer = null;
+  var delayTimer = null;
+  var start = function (e) {
+    e.preventDefault();
+    fn();
+    clearTimeout(delayTimer);
+    clearInterval(timer);
+    delayTimer = setTimeout(function () {
+      timer = setInterval(fn, 120);
+    }, 380);
+  };
+  var stop = function () {
+    clearTimeout(delayTimer);
+    clearInterval(timer);
+  };
+  btn.addEventListener('pointerdown', start);
+  btn.addEventListener('pointerup', stop);
+  btn.addEventListener('pointerleave', stop);
+  btn.addEventListener('pointercancel', stop);
+}
+bindHoldRepeat(els.btnWpmDown, function () { setWpm(state.wpm - 5); });
+bindHoldRepeat(els.btnWpmUp, function () { setWpm(state.wpm + 5); });
+
+function setListenMode(on) {
+  state.listenMode = !!on;
+  if (els.btnListen) {
+    els.btnListen.classList.toggle('active', state.listenMode);
+    els.btnListen.setAttribute('aria-pressed', state.listenMode ? 'true' : 'false');
+  }
+  if (els.listenVoiceRow) els.listenVoiceRow.hidden = !state.listenMode;
+  if (typeof FocusListen !== 'undefined') FocusListen.setListen(state.listenMode);
+  updateVoiceLimitUI();
+  if (state.playing) {
+    // switch modes mid-play
+    stopWordTimer();
+    if (typeof FocusListen !== 'undefined') FocusListen.stop(true);
+    if (state.listenMode && typeof FocusListen !== 'undefined' && FocusListen.supportsSpeech()) {
+      FocusListen.speakFromWordIndex(
+        state.wordIndices.map(function (ti) { return state.tokens[ti].text; }),
+        state.index,
+        state.wpm
+      );
+    } else if (state.listenMode) {
+      showToast('Speech synthesis not available in this browser');
+      setListenMode(false);
+      scheduleNext();
+    } else {
+      scheduleNext();
+    }
+  }
+}
+if (els.btnListen) {
+  els.btnListen.addEventListener('click', function () {
+    setListenMode(!state.listenMode);
+  });
+}
+
+function populateVoiceSelect() {
+  if (!els.voiceSelect || typeof FocusListen === 'undefined') return;
+  var voices = FocusListen.loadVoices(true);
+  if (!voices.length) voices = FocusListen.getVoices();
+  var prev = els.voiceSelect.value;
+  els.voiceSelect.innerHTML = '';
+  var groups = {};
+  voices.forEach(function (v) {
+    var lang = (v.lang || 'und').slice(0, 2);
+    if (!groups[lang]) groups[lang] = [];
+    groups[lang].push(v);
+  });
+  Object.keys(groups).sort().forEach(function (lang) {
+    var og = document.createElement('optgroup');
+    og.label = lang;
+    groups[lang].forEach(function (v) {
+      var opt = document.createElement('option');
+      opt.value = v.voiceURI;
+      opt.textContent = v.name + (v.localService ? '' : ' · online');
+      og.appendChild(opt);
+    });
+    els.voiceSelect.appendChild(og);
+  });
+  if (prev) els.voiceSelect.value = prev;
+}
+if (typeof FocusListen !== 'undefined') {
+  FocusListen.on('voices', populateVoiceSelect);
+  FocusListen.on('word', function (wi) {
+    if (!state.listenMode || !state.playing) return;
+    if (wi < state.index) return;
+    if (wi > state.index) state.wordsReadSession += (wi - state.index);
+    state.index = Math.min(totalWords() - 1, Math.max(0, wi));
+    var token = currentToken();
+    if (token) renderWord(token.text);
+    updateProgress();
+    scheduleSaveProgress(false);
+  });
+  FocusListen.on('end', function () {
+    if (!state.listenMode) return;
+    setPlayingUI(false);
+    releaseWakeLock();
+    flushPlayClock();
+    scheduleSaveProgress(true);
+    showToast('Finished');
+  });
+  populateVoiceSelect();
+}
+if (els.voiceSelect) {
+  els.voiceSelect.addEventListener('change', function () {
+    if (typeof FocusListen !== 'undefined') FocusListen.setVoiceURI(els.voiceSelect.value);
+    if (state.listenMode && state.playing) {
+      FocusListen.speakFromWordIndex(
+        state.wordIndices.map(function (ti) { return state.tokens[ti].text; }),
+        state.index,
+        state.wpm
+      );
+    }
+  });
+}
+if (els.langOverride) {
+  els.langOverride.addEventListener('change', function () {
+    state.langOverride = els.langOverride.value || '';
+    if (typeof FocusListen !== 'undefined') FocusListen.setLangOverride(state.langOverride);
+    if (state.currentDocId) {
+      try {
+        var map = JSON.parse(localStorage.getItem('focusReader.bookLang') || '{}');
+        if (state.langOverride) map[state.currentDocId] = state.langOverride;
+        else delete map[state.currentDocId];
+        localStorage.setItem('focusReader.bookLang', JSON.stringify(map));
+      } catch (e) {}
+    }
+    updateVoiceLimitUI();
+    if (state.listenMode && state.playing) {
+      FocusListen.speakFromWordIndex(
+        state.wordIndices.map(function (ti) { return state.tokens[ti].text; }),
+        state.index,
+        state.wpm
+      );
+    }
+  });
+}
+
+function updateVoiceLimitUI() {
+  var lim = 300;
+  if (typeof VoiceLimit !== 'undefined') {
+    lim = VoiceLimit.getLimit(state.langOverride || state.bookLang);
+  }
+  var min = Number(els.wpmRange.min) || 100;
+  var max = Number(els.wpmRange.max) || 1000;
+  var pct = ((lim - min) / (max - min)) * 100;
+  if (pct < 0) pct = 0;
+  if (pct > 100) pct = 100;
+  if (els.voiceLimitTrack) {
+    els.voiceLimitTrack.hidden = !state.listenMode;
+  }
+  if (els.voiceLimitZone) {
+    els.voiceLimitZone.style.left = pct + '%';
+    els.voiceLimitZone.style.width = (100 - pct) + '%';
+  }
+  if (els.voiceLimitTick) {
+    els.voiceLimitTick.style.left = pct + '%';
+  }
+  if (els.voiceLimitLabel) {
+    els.voiceLimitLabel.textContent = 'voice limit ~' + lim + ' WPM';
+  }
+  if (els.voiceLimitHint) {
+    els.voiceLimitHint.hidden = !state.listenMode;
+    els.voiceLimitHint.textContent = state.listenMode ? ('limit ~' + lim) : '';
+  }
+  var over = state.listenMode && state.wpm > lim;
+  if (els.wpmDisplay) els.wpmDisplay.classList.toggle('wpm-over-limit', over);
+  if (els.wpmInput) els.wpmInput.classList.toggle('wpm-over-limit', over);
+}
+
+// Periodic voice-limit learning tick
+setInterval(function () {
+  if (!state.listenMode || !state.playing || typeof VoiceLimit === 'undefined') return;
+  VoiceLimit.tick(state.wpm, state.langOverride || state.bookLang, true);
+  updateVoiceLimitUI();
+}, 1000);
 
 els.btnLoadSample.addEventListener('click', function () {
   els.source.value = SAMPLE_TEXT;
@@ -1107,13 +1413,12 @@ els.btnLoadSample.addEventListener('click', function () {
     toast: true,
     persist: true,
     name: 'Sample text',
-    type: 'sample',
-    position: 0
+    type: 'sample'
   });
 });
 
 els.btnApply.addEventListener('click', function () {
-  applyText(els.source.value, { toast: true, persist: true, type: 'paste', position: 0 });
+  applyText(els.source.value, { toast: true, persist: true, type: 'paste' });
 });
 
 els.btnClear.addEventListener('click', function () {
@@ -1200,10 +1505,10 @@ document.addEventListener('keydown', function (e) {
     skip(5);
   } else if (e.code === 'ArrowUp') {
     e.preventDefault();
-    setWpm(state.wpm + 25);
+    setWpm(state.wpm + (e.shiftKey ? 25 : 5));
   } else if (e.code === 'ArrowDown') {
     e.preventDefault();
-    setWpm(state.wpm - 25);
+    setWpm(state.wpm - (e.shiftKey ? 25 : 5));
   }
 });
 
@@ -1248,9 +1553,17 @@ if (els.btnClearRecent) {
 
 window.addEventListener('beforeunload', function () {
   scheduleSaveProgress(true);
+  flushCurrentBook();
+});
+window.addEventListener('pagehide', function () {
+  scheduleSaveProgress(true);
+  flushCurrentBook();
 });
 document.addEventListener('visibilitychange', function () {
-  if (document.visibilityState === 'hidden') scheduleSaveProgress(true);
+  if (document.visibilityState === 'hidden') {
+    scheduleSaveProgress(true);
+    flushCurrentBook();
+  }
 });
 
 void ORP_TABLE;
@@ -1276,9 +1589,22 @@ window.__FOCUS_READER__ = {
       wordsReadSession: state.wordsReadSession,
       currentDocId: state.currentDocId,
       currentDocName: state.currentDocName,
-      bannerVisible: els.sessionBanner && !els.sessionBanner.hidden
+      bannerVisible: els.sessionBanner && !els.sessionBanner.hidden,
+      listenMode: state.listenMode,
+      positionRestored: state.positionRestored
     };
   },
+  setListenMode: function (on) { setListenMode(!!on); },
+  setIndex: function (i) {
+    if (!totalWords()) return;
+    state.index = Math.min(totalWords() - 1, Math.max(0, i));
+    var token = currentToken();
+    if (token) renderWord(token.text);
+    updateProgress();
+    scheduleSaveProgress(true);
+  },
+  flush: flushCurrentBook,
+  applyText: applyText,
   setSessionMinutes: function (m) {
     els.sessionCustomMin.value = String(m);
     state.sessionDurationMs = m * 60 * 1000;
@@ -1331,6 +1657,7 @@ window.__FOCUS_READER__ = {
       lastOpened: Date.now()
     }).then(function () { return refreshRecentList(); });
   },
+  flushCurrentBook: flushCurrentBook,
   saveNow: function () {
     if (!state.currentDocId) return Promise.resolve();
     return RecentStore.updateProgress(state.currentDocId, {
@@ -1677,14 +2004,17 @@ function renderLibraryLists(publicBooks, driveFiles, driveMsg) {
 
 function openPublicBook(b) {
   showLoading('Downloading ' + b.title + '…', 0.05);
-  FocusLibrary.loadPublicBook(b.file).then(function (text) {
+  flushCurrentBook().then(function () {
+    return FocusLibrary.loadPublicBook(b.file);
+  }).then(function (text) {
     els.source.value = text;
+    // position omitted on purpose — applyText restores from RecentStore by content hash
     applyText(text, {
       toast: true,
       persist: true,
       name: b.title,
       type: 'library',
-      position: 0
+      skipFlush: true
     });
   }).catch(function (err) {
     hideLoading();
@@ -1694,7 +2024,9 @@ function openPublicBook(b) {
 
 function openDriveBook(f) {
   showLoading('Downloading from Drive…', 0.05);
-  FocusLibrary.downloadDriveFile(f).then(function (text) {
+  flushCurrentBook().then(function () {
+    return FocusLibrary.downloadDriveFile(f);
+  }).then(function (text) {
     if (typeof text !== 'string') text = String(text || '');
     els.source.value = text;
     applyText(text, {
@@ -1702,8 +2034,8 @@ function openDriveBook(f) {
       persist: true,
       name: f.name,
       type: 'drive',
-      position: 0,
-      driveFileId: f.id
+      driveFileId: f.id,
+      skipFlush: true
     });
   }).catch(function (err) {
     hideLoading();

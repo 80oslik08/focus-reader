@@ -1285,3 +1285,94 @@ code {
 @media (prefers-reduced-motion: reduce) {
   .loading-spinner { animation: none; border-top-color: var(--accent); }
 }
+
+
+/* ——— Listen mode + voice limit zone ——— */
+#btnListen.active {
+  background: var(--accent, #3b82f6);
+  color: #fff;
+  border-color: transparent;
+}
+.speed-slider-wrap {
+  position: relative;
+  flex: 1 1 120px;
+  min-width: 100px;
+  display: flex;
+  align-items: center;
+}
+.speed-slider-wrap input[type="range"] {
+  width: 100%;
+  position: relative;
+  z-index: 2;
+  background: transparent;
+}
+.voice-limit-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 1;
+  overflow: visible;
+}
+.voice-limit-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 0 4px 4px 0;
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.45), rgba(239, 68, 68, 0.7));
+  box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.35);
+}
+.voice-limit-tick {
+  position: absolute;
+  top: -18px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 10px;
+  line-height: 1;
+  color: #f59e0b;
+  font-weight: 600;
+}
+.voice-limit-tick::after {
+  content: '';
+  display: block;
+  width: 2px;
+  height: 14px;
+  background: #f59e0b;
+  margin: 2px auto 0;
+}
+.voice-limit-hint {
+  font-size: 11px;
+  color: #f59e0b;
+  white-space: nowrap;
+}
+.wpm-over-limit,
+#wpmDisplay.wpm-over-limit,
+#wpmInput.wpm-over-limit {
+  color: #f59e0b !important;
+  font-weight: 700;
+}
+.listen-voice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.6rem;
+  align-items: center;
+  width: 100%;
+  margin-top: 0.35rem;
+  font-size: 0.85rem;
+}
+.listen-voice-row select {
+  max-width: 12rem;
+  background: var(--panel, #1e293b);
+  color: inherit;
+  border: 1px solid var(--border, #334155);
+  border-radius: 6px;
+  padding: 0.25rem 0.4rem;
+}
+#btnWpmDown, #btnWpmUp {
+  min-width: 4.5rem;
+  font-variant-numeric: tabular-nums;
+}

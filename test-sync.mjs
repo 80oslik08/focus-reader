@@ -193,6 +193,21 @@ listed = await drive.listAppData();
 const flushed = await drive.downloadJson(drive.findByName(listed, 'progress-' + bookId + '.json').id);
 assert(flushed.position === 900, 'offline queue flush uploads position 900');
 
+
+log('');
+log('=== Resume: remote 0 / older must not wipe ===');
+{
+  const id2 = 'resume1';
+  const local = [{
+    id: id2, name: 'Lib', type: 'library', text: 'aaa', wordCount: 10,
+    position: 300, wpm: 300, lastOpened: 5000, createdAt: 1000, updatedAt: 5000
+  }];
+  let m2 = merge(local, {}, { [id2]: { id: id2, position: 0, wpm: 300, updatedAt: 9999, deviceName: 'x' } }, {});
+  assert(m2.docs[0].position === 300, 'merge: remote pos 0 with newer ts does not wipe local');
+  m2 = merge(local, {}, { [id2]: { id: id2, position: 10, wpm: 300, updatedAt: 1000, deviceName: 'x' } }, {});
+  assert(m2.docs[0].position === 300, 'merge: older remote does not regress');
+}
+
 log('');
 if (failed === 0) log('RESULT: PASS');
 else log('RESULT: FAIL (' + failed + ')');

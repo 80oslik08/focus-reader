@@ -185,25 +185,42 @@
 
     return hashText(text).then(function (id) {
       return get(id).then(function (existing) {
+        // Position rules:
+        // - keepPosition / updateMetaOnly: always keep existing
+        // - resetPosition: force incoming position (even 0)
+        // - else if existing.position > 0 and incoming is 0: KEEP existing
+        //   (prevents library reopen from wiping progress with a fresh timestamp)
+        // - else use incoming position
+        var nextPos;
+        if (opts.updateMetaOnly && existing) {
+          nextPos = existing.position || 0;
+        } else if (opts.keepPosition && existing) {
+          nextPos = existing.position || 0;
+        } else if (opts.resetPosition) {
+          nextPos = position;
+        } else if (existing && (existing.position || 0) > 0 && (!position || position === 0)) {
+          nextPos = existing.position;
+        } else {
+          nextPos = position;
+        }
+        var nextUpdated = now;
+        // Don't bump updatedAt when we only reopen and keep the old position at 0-load
+        if (existing && nextPos === (existing.position || 0) && opts.position === 0 && !opts.resetPosition) {
+          nextUpdated = existing.updatedAt || existing.lastOpened || now;
+        }
         var doc = {
           id: id,
           name: name,
           type: type,
           text: text,
           wordCount: wordCount,
-          position: existing && opts.keepPosition ? (existing.position || 0) : position,
+          position: nextPos,
           wpm: wpm,
           lastOpened: now,
           createdAt: existing ? existing.createdAt : now,
-          updatedAt: now,
+          updatedAt: nextUpdated,
           cloudOnly: false
         };
-        if (existing && opts.keepPosition === false && opts.position != null) {
-          doc.position = position;
-        }
-        if (existing && opts.updateMetaOnly) {
-          doc.position = existing.position;
-        }
         return put(doc).then(function (saved) {
           if (global.FocusSync && FocusSync.notifyLocalChange) {
             FocusSync.notifyLocalChange('book', saved);

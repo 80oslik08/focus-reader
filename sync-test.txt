@@ -22,4 +22,8 @@ PASS: delete on A propagates to B merge
 === Offline queue flush shape ===
 PASS: offline queue flush uploads position 900
 
+=== Resume: remote 0 / older must not wipe ===
+PASS: merge: remote pos 0 with newer ts does not wipe local
+PASS: merge: older remote does not regress
+
 RESULT: PASS
