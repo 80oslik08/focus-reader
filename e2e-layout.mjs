@@ -107,6 +107,7 @@ const VIEWPORTS = [
   { name: 'tablet', width: 1024, height: 768 },
   { name: 'phone', width: 390, height: 844 },
   { name: 'landscape', width: 844, height: 390 },
+  { name: 'landscapeShort', width: 740, height: 360 },
   { name: 'narrow', width: 360, height: 740 }
 ];
 
@@ -191,6 +192,35 @@ async function run() {
         sr.left >= cr.left - 1 && sr.right <= cr.right + 1 &&
         sr.top >= cr.top - 1 && sr.bottom <= cr.bottom + 2
       );
+      // Elements must fit inside nearest .player-col / .stage-wrap / .jump-panel card
+      const containerClipped = [];
+      interactive.forEach((el) => {
+        const card = el.closest('.player-col, .stage-wrap');
+        if (!card) return;
+        const cr2 = card.getBoundingClientRect();
+        const r = el.getBoundingClientRect();
+        // allow 1px subpixel slack
+        if (r.left < cr2.left - 1.5 || r.right > cr2.right + 1.5 ||
+            r.top < cr2.top - 1.5 || r.bottom > cr2.bottom + 1.5) {
+          containerClipped.push({
+            id: el.id || String(el.className).slice(0, 40),
+            elL: Math.round(r.left), elR: Math.round(r.right),
+            cL: Math.round(cr2.left), cR: Math.round(cr2.right)
+          });
+        }
+      });
+      // Also check jump slider specifically
+      const slider = document.getElementById('jumpSlider');
+      if (slider) {
+        const card = slider.closest('.player-col-nav, .player-col');
+        if (card) {
+          const cr2 = card.getBoundingClientRect();
+          const r = slider.getBoundingClientRect();
+          if (r.left < cr2.left - 1.5 || r.right > cr2.right + 1.5) {
+            containerClipped.push({ id: 'jumpSlider', elL: Math.round(r.left), elR: Math.round(r.right), cL: Math.round(cr2.left), cR: Math.round(cr2.right) });
+          }
+        }
+      }
       return {
         vw,
         cardW: cr.width,
@@ -199,7 +229,9 @@ async function run() {
         progressOverlap: boxesOverlap,
         progressGap: st.left - pr.right,
         clipped: clipped2,
-        clippedCount: clipped2.length
+        clippedCount: clipped2.length,
+        containerClipped,
+        containerClippedCount: containerClipped.length
       };
     }, vpName);
   }
@@ -219,6 +251,8 @@ async function run() {
     report.visual = report.visual || {};
     report.visual[vp.name] = vis;
     assert(vis.clippedCount === 0, `${vp.name}: no clipped interactives (${JSON.stringify(vis.clipped.slice(0,3))})`, report);
+    assert(vis.containerClippedCount === 0,
+      `${vp.name}: no card-clipped interactives (${JSON.stringify(vis.containerClipped.slice(0,4))})`, report);
     assert(vis.stripInside, `${vp.name}: strip viewport inside reader card`, report);
     assert(!vis.progressOverlap && vis.progressGap >= 4,
       `${vp.name}: progress/status not overlapping (gap=${vis.progressGap})`, report);
@@ -236,8 +270,35 @@ async function run() {
     }
   }
 
-  // Alignment checks at desktop
+  // Only CURRENT strip ORP letter is red
   await page.setViewportSize({ width: 1440, height: 900 });
+  await page.evaluate(() => {
+    window.__FOCUS_READER__.setSentenceStripOn(true);
+    window.__FOCUS_READER__.setIndex(120);
+    window.__FOCUS_READER__.updateSentenceStrip({ forceInstant: true, sync: true });
+  });
+  await page.waitForTimeout(80);
+  const orpColors = await page.evaluate(() => {
+    const words = Array.from(document.querySelectorAll('#sentenceStripTrack .strip-word'));
+    return words.map((w) => {
+      const orp = w.querySelector('.strip-orp');
+      const cs = getComputedStyle(orp);
+      return { current: w.classList.contains('is-current'), color: cs.color };
+    });
+  });
+  const redish = (c) => {
+    const m = c.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+    if (!m) return false;
+    const r = +m[1], g = +m[2], b = +m[3];
+    return r > 180 && g < 120 && b < 120;
+  };
+  const curr = orpColors.filter((x) => x.current);
+  const others = orpColors.filter((x) => !x.current);
+  assert(curr.length === 1 && redish(curr[0].color), 'current strip ORP is red', report);
+  assert(others.every((x) => !redish(x.color)), 'non-current strip ORPs are not red', report);
+
+  // Alignment checks at desktop
+
   await page.waitForTimeout(100);
   for (const idx of [120, 121, 122, 130]) {
     await page.evaluate((i) => window.__FOCUS_READER__.setIndex(i), idx);

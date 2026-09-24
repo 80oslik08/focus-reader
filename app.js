@@ -760,7 +760,10 @@ function updateJumpScrubUI() {
   if (els.jumpSlider) {
     els.jumpSlider.setAttribute('aria-valuetext', FocusJump.formatSignedTime(sec));
   }
-  if (els.btnJumpApply) els.btnJumpApply.disabled = !active;
+  if (els.btnJumpApply) {
+    els.btnJumpApply.disabled = !active;
+    els.btnJumpApply.classList.toggle('btn-primary', !!active);
+  }
   if (els.btnJumpCancel) els.btnJumpCancel.disabled = sec === 0;
   if (els.btnJumpUndo) els.btnJumpUndo.disabled = !state.jumpUndoStack.length;
 }
