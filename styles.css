@@ -1709,9 +1709,27 @@ code {
   margin: 0;
   padding: 0 4px;
   flex: 0 0 auto;
-  mask-image: linear-gradient(90deg, transparent 0%, #000 10%, #000 90%, transparent 100%);
-  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 10%, #000 90%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 12%, #000 88%, transparent 100%);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 12%, #000 88%, transparent 100%);
   contain: paint;
+}
+.sentence-strip-wrap::before,
+.sentence-strip-wrap::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 28px;
+  z-index: 2;
+  pointer-events: none;
+}
+.sentence-strip-wrap::before {
+  left: 0;
+  background: linear-gradient(90deg, var(--bg-2), transparent);
+}
+.sentence-strip-wrap::after {
+  right: 0;
+  background: linear-gradient(270deg, var(--bg-2), transparent);
 }
 .sentence-strip-wrap.is-hidden {
   display: none;
